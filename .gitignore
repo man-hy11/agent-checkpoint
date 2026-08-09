@@ -1,0 +1,42 @@
+.omc/
+.sisyphus/
+.agentmemory/
+.claude-mem/
+.codegraph/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*:Zone.Identifier
+.agent-checkpoint/
+.superpowers/sdd/
+node_modules/
+.worktrees/
+.env
+.env.local
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+.codex/
+*~
+tmp/
+.turbo/
+**/.serena
+.serena/
+**/.omo
+.omo/
+a.out
+target/
+.scripts/
+.direnv/
+# >>> agent-checkpoint >>>
+PROGRESS.md
+PROGRESS_ARCHIVE.md
+.agent-checkpoint.lock
+# <<< agent-checkpoint <<<
+
+# .docs (local working notes, not for repo)
+.docs/

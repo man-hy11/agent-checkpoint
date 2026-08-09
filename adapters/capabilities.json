@@ -1,0 +1,6 @@
+{
+  "claude-code": "automatic",
+  "gemini-cli": "advisory",
+  "codex": "manual",
+  "opencode": "manual"
+}

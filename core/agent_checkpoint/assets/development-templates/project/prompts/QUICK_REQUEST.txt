@@ -1,0 +1,16 @@
+이 프로젝트를 AI Development Templates의 New Project Template 방식으로 계획해줘.
+
+구현은 시작하지 말고 먼저 전체 계획 패키지를 작성해줘.
+
+요구사항을 분석해서:
+- Phase를 의존성 순서로 구성하고
+- 각 Phase를 상세 Step으로 나누고
+- 각 Step마다 Task / 구현 요구사항 / 실패 케이스 / 테스트 / Evidence / Acceptance Criteria를 작성하고
+- Phase마다 독립 Gate를 만들고
+- PHASE.md가 Current Target을 관리하게 하고
+- 1회 AI 실행 = 1 Step 또는 1 Gate 규칙을 적용하고
+- PASS 후 다음 Target만 지정하고 STOP하도록 해줘.
+- FIRST_RUN_PROMPT와 계속 재사용하는 CONTINUE_PROMPT도 작성해줘.
+- 마지막에 전체 Step/Gate/의존성/문서 일관성을 검증해줘.
+
+이전 프로젝트의 기능이나 기술은 이번 요구사항에 실제로 필요할 때만 가져와.

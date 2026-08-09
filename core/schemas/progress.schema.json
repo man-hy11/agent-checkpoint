@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Checkpoint Progress Document",
+  "type": "object",
+  "required": ["created_at", "pinned", "body", "sections"],
+  "properties": {
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "body": {
+      "type": "string"
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "## 1. Goal / Plan",
+          "## 2. Progress",
+          "## 3. Current Focus",
+          "## 4. Next Actions / TODO",
+          "## 5. Decisions / Constraints / Notes",
+          "## 6. Verification"
+        ]
+      },
+      "minItems": 5,
+      "uniqueItems": true,
+      "allOf": [
+        {"contains": {"const": "## 1. Goal / Plan"}},
+        {"contains": {"const": "## 2. Progress"}},
+        {"contains": {"const": "## 3. Current Focus"}},
+        {"contains": {"const": "## 4. Next Actions / TODO"}},
+        {"contains": {"const": "## 5. Decisions / Constraints / Notes"}}
+      ]
+    }
+  },
+  "additionalProperties": false
+}

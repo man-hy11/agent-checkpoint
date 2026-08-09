@@ -1,0 +1,20 @@
+기존 프로젝트에서 이 버그를 수정하려고 해.
+
+AI Development Templates의 Bugfix Template 기준으로 먼저 조사/수정 계획을 만들어줘.
+
+바로 수정하지 말고:
+- 기존 프로젝트 구조와 관련 테스트를 확인하고
+- BUG Change Plan을 만들고
+- B1 재현 및 Evidence 확보
+- B2 Root Cause 분석과 증거 확인
+- B3 최소 범위 Fix
+- B4 Regression / 인접 기능 검증
+- Bug Gate
+순서로 계획해줘.
+
+재현/증거를 얻을 수 있는 상황에서는 Root Cause가 증거로 확인되기 전에 Fix 단계로 넘어가지 않게 해줘.
+
+1회 AI 실행 = 1 Bugfix Step 또는 1 Bug Gate로 제한하고,
+PASS 후 다음 Target만 지정하고 STOP하게 해줘.
+
+불필요한 리팩터링이나 추측성 수정은 금지해줘.

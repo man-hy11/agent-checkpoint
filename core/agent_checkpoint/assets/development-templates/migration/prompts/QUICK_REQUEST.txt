@@ -1,0 +1,26 @@
+이 작업을 AI Development Templates의 Migration Template 기준으로 먼저 계획해줘.
+
+바로 구현하지 말고 기존 프로젝트를 먼저 분석한 뒤 독립 작업 계획을 만들어줘.
+
+기본 흐름:
+M1 Data / Schema Baseline
+-> M2 Migration & Recovery Design
+-> M3 Forward Migration Implementation
+-> M4 Validation / Backfill / Compatibility
+-> M5 Restore / Rollback Drill
+-> Migration Gate
+
+각 Step에는:
+- 상세 작업
+- 실패/엣지 케이스
+- 테스트/검증
+- Evidence
+- Regression/Compatibility
+- Acceptance Criteria
+를 포함해줘.
+
+1회 AI 실행 = 1 Step 또는 1 Gate로 제한하고,
+PASS 후 다음 Target만 지정하고 STOP하게 해줘.
+FAIL이면 Target을 진행시키지 않게 해줘.
+
+관련 없는 리팩터링/기능 변경은 하지 않도록 계획해줘.

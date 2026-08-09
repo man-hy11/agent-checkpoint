@@ -1,0 +1,5 @@
+{
+  "name": "agent-checkpoint",
+  "description": "Portable project checkpoints with automatic pre-compaction and session-resume support.",
+  "version": "0.1.0"
+}

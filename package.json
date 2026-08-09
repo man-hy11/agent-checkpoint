@@ -1,0 +1,24 @@
+{
+  "name": "agent-checkpoint",
+  "version": "0.1.0",
+  "description": "Portable checkpoint workflows for coding agents",
+  "license": "MIT",
+  "bin": {
+    "agent-checkpoint": "bin/agent-checkpoint.cjs"
+  },
+  "scripts": {
+    "postinstall": "node bin/postinstall-skill-install.cjs"
+  },
+  "files": [
+    "bin/agent-checkpoint.cjs",
+    "bin/postinstall-skill-install.cjs",
+    "core/bin/agent-checkpoint",
+    "core/agent_checkpoint/*.py",
+    "core/agent_checkpoint/assets",
+    "core/skills/checkpoint",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

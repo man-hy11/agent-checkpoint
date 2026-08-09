@@ -1,0 +1,5 @@
+{
+  "name": "agent-checkpoint",
+  "version": "0.1.0",
+  "description": "Portable project checkpoints with a pre-compression advisory and manual resume or handoff commands."
+}

@@ -1,0 +1,8 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "/tmp/gemini-fixture-transcript.json",
+  "cwd": ".",
+  "hook_event_name": "PreCompress",
+  "timestamp": "2026-08-09T00:00:00Z",
+  "trigger": "auto"
+}

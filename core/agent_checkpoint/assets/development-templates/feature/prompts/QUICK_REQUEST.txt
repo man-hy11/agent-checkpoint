@@ -1,0 +1,16 @@
+기존 프로젝트에 이 기능을 추가/변경하려고 해.
+
+AI Development Templates의 Feature Change Template 기준으로 먼저 계획을 작성해줘.
+
+바로 구현하지 말고:
+- 기존 프로젝트 구조/아키텍처/테스트를 먼저 분석하고
+- 영향 범위를 정리하고
+- `changes/FEATURE-.../` 형태의 독립 Change Plan을 만들고
+- CURRENT.md로 현재 Step을 추적하고
+- 기능을 필요한 만큼 F1, F2... Step으로 나누고
+- 각 Step에 구현/실패케이스/테스트/Evidence/Regression/Acceptance Criteria를 넣고
+- 마지막에 Feature Gate를 만들고
+- 1회 AI 실행 = 1 Feature Step 또는 1 Feature Gate로 제한하고
+- PASS 후 다음 Target만 지정하고 STOP하게 해줘.
+
+기존 프로젝트에 불필요한 리팩터링은 하지 않도록 계획해줘.

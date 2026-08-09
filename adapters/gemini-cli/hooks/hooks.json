@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreCompress": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "agent-checkpoint-pre-compress",
+            "type": "command",
+            "command": "python3 \"${extensionPath}/hooks/pre_compress.py\"",
+            "timeout": 30000
+          }
+        ]
+      }
+    ]
+  }
+}

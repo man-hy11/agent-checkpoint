@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+# agent-checkpoint portable launcher
+"""Run agent-checkpoint from a source tree or prefix installation."""
+
+from pathlib import Path
+import sys
+
+
+_prefix = Path(__file__).resolve().parent.parent
+_source_package_root = _prefix
+_installed_package_root = _prefix / "share" / "agent-checkpoint"
+_package_root = (
+    _installed_package_root
+    if (_installed_package_root / "agent_checkpoint").is_dir()
+    else _source_package_root
+)
+sys.path.insert(0, str(_package_root))
+
+from agent_checkpoint.cli import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
