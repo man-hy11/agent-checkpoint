@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "type": "migration",
+  "unit_prefix": "M",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "No destructive unit may pass while MIGRATION_RECOVERY_PLAN.md is absent",
+    "Every migration step names its rollback path before it runs",
+    "Data integrity is verified after every destructive step, not only at the end"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "MIGRATION_RECOVERY_PLAN.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "data_integrity_check",
+      "rollback_verified",
+      "sign_off"
+    ]
+  },
+  "default_units": [
+    "M1 Recovery plan",
+    "M2 Migration execution",
+    "M3 Data integrity verification",
+    "Migration Gate"
+  ]
+}

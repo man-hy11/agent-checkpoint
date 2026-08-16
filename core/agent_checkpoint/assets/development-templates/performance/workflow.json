@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "type": "performance",
+  "unit_prefix": "P",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "Measure baseline before optimizing",
+    "Correctness must not regress for a faster benchmark",
+    "Reject gains caused by reduced work, disabled validation, or unrealistic fixtures"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "BENCHMARK_BASELINE.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "before_measurement",
+      "after_measurement",
+      "correctness_regression"
+    ]
+  },
+  "default_units": [
+    "P1 Baseline Measurement",
+    "P2 Bottleneck Analysis",
+    "P3 Optimization Experiment",
+    "P4 Production-Quality Optimization",
+    "P5 Before/After & Correctness Regression",
+    "Performance Gate"
+  ]
+}

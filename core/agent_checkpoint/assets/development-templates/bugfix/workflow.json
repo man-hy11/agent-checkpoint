@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "type": "bugfix",
+  "unit_prefix": "B",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "Reproduce the bug before attempting a fix",
+    "A fix without a regression test guarding it does not pass",
+    "The root cause, not only the symptom, must be named in evidence"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "optional",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "BUG.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "repro_before",
+      "repro_after",
+      "regression_check"
+    ]
+  },
+  "default_units": [
+    "B1 Reproduction / Investigation",
+    "B2 Root cause fix",
+    "B3 Regression coverage",
+    "Bugfix Gate"
+  ]
+}

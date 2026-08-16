@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "type": "release",
+  "unit_prefix": "REL",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "The release plan is frozen before packaging begins",
+    "Every checklist item has recorded evidence, not a verbal confirmation",
+    "A release gate never passes on a partially completed checklist"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "RELEASE_PLAN.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "release_checklist",
+      "regression_check",
+      "sign_off"
+    ]
+  },
+  "default_units": [
+    "REL1 Release plan",
+    "REL2 Packaging and validation",
+    "REL3 Rollout checklist",
+    "Release Gate"
+  ]
+}

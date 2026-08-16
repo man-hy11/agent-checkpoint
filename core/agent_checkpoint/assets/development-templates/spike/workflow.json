@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "type": "spike",
+  "unit_prefix": "SP",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "The deliverable is a decision, not production code",
+    "Every option considered is recorded, including the rejected ones",
+    "The decision record names what would change the decision later"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "omitted",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "DECISION_RECORD.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "decision_recorded",
+      "evidence_summary"
+    ]
+  },
+  "default_units": [
+    "SP1 Exploration",
+    "SP2 Option comparison",
+    "Spike Gate"
+  ]
+}

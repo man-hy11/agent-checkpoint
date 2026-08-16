@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "type": "feature",
+  "unit_prefix": "F",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "Understand existing system behavior before changing it",
+    "Every step ends with a passing regression suite",
+    "No feature gate passes without an explicit compatibility check"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "acceptance_criteria",
+      "regression_check",
+      "sign_off"
+    ]
+  },
+  "default_units": [
+    "F1 Existing System / Impact Analysis",
+    "F2 Implementation foundation",
+    "F3 Feature implementation",
+    "F4 UI/integration",
+    "F5 Regression / Compatibility",
+    "Feature Gate"
+  ]
+}

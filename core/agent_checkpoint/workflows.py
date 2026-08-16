@@ -9,6 +9,7 @@ import stat
 import uuid
 
 from .config import ConfigError
+from .work_renderer import RenderedPackage, render_final_package
 
 
 _ASSET_ROOT = Path(__file__).with_name("assets") / "development-templates"
@@ -95,6 +96,16 @@ def initialize_workflow(project_root: Path, work_type: str, work_id: str) -> Wor
             shutil.rmtree(staged)
         raise
     return WorkflowResult(work_type, work_id, destination)
+
+
+def render_final_workflow(project_root: Path, work_type: str, work_id: str) -> RenderedPackage:
+    """Materialize a revision-5 final-only package (manifest and RULES.md driven).
+
+    This is the new, migration-path entrypoint for the ten manifest-driven
+    families; `initialize_workflow` above remains the legacy copy-based path
+    for consumers not yet migrated to it (R5-I10 handles that migration).
+    """
+    return render_final_package(project_root, work_type, work_id)
 
 
 def discard_workflow(result: WorkflowResult) -> None:

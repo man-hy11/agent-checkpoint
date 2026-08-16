@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "type": "project",
+  "unit_prefix": "PH",
+  "grouped": true,
+  "max_attempts": 3,
+  "hard_rules": [
+    "Each Phase gate must pass before the next Phase's steps may start",
+    "Phase status is derived from its member units and never stored directly",
+    "A Phase gate records the evidence for every step it closes out"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "AGENTS.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "phase_summary",
+      "acceptance_criteria",
+      "regression_check"
+    ]
+  },
+  "default_units": [
+    "PH1-S1 Foundation",
+    "PH1-S2 Core implementation",
+    "PH1-G Phase 1 Gate",
+    "PH2-S1 Integration",
+    "PH2-S2 Hardening",
+    "PH2-G Phase 2 Gate"
+  ]
+}

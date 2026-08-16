@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "type": "refactor",
+  "unit_prefix": "R",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "Characterization tests exist before structural change begins",
+    "Observable behavior must not change",
+    "Each step keeps the full suite green, not only the touched area"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "behavior_preserved",
+      "regression_check",
+      "sign_off"
+    ]
+  },
+  "default_units": [
+    "R1 Characterization tests",
+    "R2 Structural change",
+    "R3 Cleanup and consolidation",
+    "Refactor Gate"
+  ]
+}

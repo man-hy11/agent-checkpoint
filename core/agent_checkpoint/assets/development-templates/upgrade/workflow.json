@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "type": "upgrade",
+  "unit_prefix": "U",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "Record the compatibility matrix before touching dependency versions",
+    "Every breaking change in the matrix has a matching migration step",
+    "The upgrade gate confirms no unlisted breaking change slipped through"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "COMPATIBILITY_MATRIX.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "compatibility_check",
+      "regression_check",
+      "sign_off"
+    ]
+  },
+  "default_units": [
+    "U1 Compatibility matrix",
+    "U2 Dependency upgrade",
+    "U3 Breaking-change remediation",
+    "Upgrade Gate"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "type": "integration",
+  "unit_prefix": "IG",
+  "grouped": false,
+  "max_attempts": 3,
+  "hard_rules": [
+    "The provider contract is recorded before integration code is written",
+    "Every failure mode the provider can return has a handled path",
+    "The gate exercises the real provider contract, not only a mock"
+  ],
+  "artifacts": {
+    "BRIEF.md": "required",
+    "PROJECT_CONTEXT.md": "required",
+    "DESIGN.md": "required",
+    "PLAN.md": "required",
+    "CURRENT.md": "required",
+    "CONTINUE_PROMPT.md": "required",
+    "EVIDENCE.md": "required",
+    "RULES.md": "generated",
+    "PROVIDER_CONTRACT.md": "required"
+  },
+  "evidence_required": {
+    "step": [
+      "command",
+      "pass_fail",
+      "observed_output"
+    ],
+    "gate": [
+      "provider_contract_check",
+      "regression_check",
+      "sign_off"
+    ]
+  },
+  "default_units": [
+    "IG1 Provider contract",
+    "IG2 Integration implementation",
+    "IG3 Failure-mode handling",
+    "Integration Gate"
+  ]
+}
