@@ -1,0 +1,28 @@
+# agents/openai.yaml — generated from core/skills/*/SKILL.md frontmatter
+# Function names are skill names with hyphens replaced by underscores.
+# Descriptions come verbatim from frontmatter description: fields.
+functions:
+- name: checkpoint
+  description: "Routes to the correct phase skill by running work status — determines which of the twelve checkpoint skills acts next and dispatches accordingly."
+- name: checkpoint_brainstorm
+  description: "Use when a work package exists but brief_confirmed is false — gathers the goal, scope, success criteria, constraints, and affected area before any planning step."
+- name: checkpoint_claim
+  description: "Use when the current unit is pending or ready — verifies its dependency, then starts it with work start."
+- name: checkpoint_diagnose
+  description: "Use when the current unit is failed and has no root_cause_fingerprint — analyzes the failure to produce a fingerprint before any recovery decision."
+- name: checkpoint_evidence
+  description: "Use after execute or verify-gate to validate the evidence document and transition the unit to passed or failed via work pass or work fail."
+- name: checkpoint_execute
+  description: "Use when the current unit is running and its kind is step — implements the step, then hands results to checkpoint-evidence."
+- name: checkpoint_handoff
+  description: "Use when every unit is passed — generates the final handoff context for the completed work package."
+- name: checkpoint_inspect
+  description: "Use to read and report work package state without making any changes — read-only diagnostic view of the current unit, allowed events, and next skill."
+- name: checkpoint_plan
+  description: "Use when the work package brief is confirmed but the unit list is empty or the current unit is superseded — creates or updates the implementation plan."
+- name: checkpoint_recover
+  description: "Use when the current unit is failed (with a root_cause_fingerprint) or blocked — selects a recovery event (retry, replan, supersede, block, unblock) and applies it."
+- name: checkpoint_select_workflow
+  description: "Use when no workflow type has been chosen yet — routes the agent to pick a workflow family and initialize its work package before any planning begins."
+- name: checkpoint_verify_gate
+  description: "Use when the current unit is running and its kind is gate — verifies acceptance criteria, then hands results to checkpoint-evidence."

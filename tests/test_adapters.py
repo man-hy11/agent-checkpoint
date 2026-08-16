@@ -665,3 +665,126 @@ class AdapterValidationTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("lib/agent_checkpoint/diagnostics.py", result.stderr)
+
+
+SKILL_NAMES = (
+    "checkpoint",
+    "checkpoint-brainstorm",
+    "checkpoint-claim",
+    "checkpoint-diagnose",
+    "checkpoint-evidence",
+    "checkpoint-execute",
+    "checkpoint-handoff",
+    "checkpoint-inspect",
+    "checkpoint-plan",
+    "checkpoint-recover",
+    "checkpoint-select-workflow",
+    "checkpoint-verify-gate",
+)
+
+
+class TwelveSkillCoverageTests(unittest.TestCase):
+    def test_codex_bundle_exposes_all_twelve_skills(self):
+        """Catches a Codex bundle that only packages the router skill."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("codex", Path(directory))
+
+            for name in SKILL_NAMES:
+                skill_path = bundle / "skills" / name / "SKILL.md"
+                self.assertTrue(skill_path.is_file(), f"missing Codex skill: {name}")
+
+    def test_opencode_bundle_exposes_all_twelve_skills(self):
+        """Catches an OpenCode bundle that only packages the router skill."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("opencode", Path(directory))
+
+            for name in SKILL_NAMES:
+                skill_path = bundle / "skills" / name / "SKILL.md"
+                self.assertTrue(skill_path.is_file(), f"missing OpenCode skill: {name}")
+
+    def test_claude_bundle_skill_suite_directory_contains_all_twelve(self):
+        """Catches the Claude bundle installing fewer than twelve skills."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("claude-code", Path(directory))
+
+            for name in SKILL_NAMES:
+                skill_path = bundle / "skills" / name / "SKILL.md"
+                self.assertTrue(skill_path.is_file(), f"missing Claude skill: {name}")
+
+    def test_openai_agents_yaml_covers_all_twelve_skills(self):
+        """Catches agents/openai.yaml omitting any skill or using a wrong name."""
+        import importlib.util
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed; install pyyaml to run this test")
+        yaml_path = PROJECT_ROOT / "agents" / "openai.yaml"
+        self.assertTrue(yaml_path.is_file(), "missing agents/openai.yaml")
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        self.assertIn("functions", data, "agents/openai.yaml must have a 'functions' key")
+        function_names = {fn["name"] for fn in data["functions"]}
+        for name in SKILL_NAMES:
+            expected_fn_name = name.replace("-", "_")
+            self.assertIn(
+                expected_fn_name,
+                function_names,
+                f"agents/openai.yaml missing function for skill: {name}",
+            )
+        self.assertEqual(
+            len(data["functions"]),
+            len(SKILL_NAMES),
+            "agents/openai.yaml function count does not match SKILL_NAMES count",
+        )
+
+    def test_validate_adapter_rejects_codex_bundle_missing_non_router_skill(self):
+        """Catches skill-manifest validation accepting a bundle with a missing skill."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("codex", Path(directory))
+            shutil.rmtree(bundle / "skills" / "checkpoint-brainstorm")
+
+            result = run_tool("tools/validate_adapters.py", str(bundle))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("checkpoint-brainstorm", result.stderr)
+
+    def test_validate_adapter_rejects_opencode_bundle_missing_non_router_skill(self):
+        """Catches skill-manifest validation accepting an OpenCode bundle with missing skill."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("opencode", Path(directory))
+            shutil.rmtree(bundle / "skills" / "checkpoint-claim")
+
+            result = run_tool("tools/validate_adapters.py", str(bundle))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("checkpoint-claim", result.stderr)
+
+    def test_validate_adapter_rejects_codex_bundle_with_extra_skill_directory(self):
+        """Catches skill-manifest validation accepting an undeclared skill directory."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("codex", Path(directory))
+            extra = bundle / "skills" / "checkpoint-unknown"
+            extra.mkdir()
+            (extra / "SKILL.md").write_text(
+                "---\nname: checkpoint-unknown\ndescription: Extra.\n---\n\n# Extra\n",
+                encoding="utf-8",
+            )
+
+            result = run_tool("tools/validate_adapters.py", str(bundle))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("checkpoint-unknown", result.stderr)
+
+    def test_validate_adapter_rejects_symlinked_skill_inside_codex_bundle(self):
+        """Catches skill-manifest validation following a symlinked skill directory."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = build_bundle("codex", root)
+            skill_dir = bundle / "skills" / "checkpoint-plan"
+            external = root / "external-skill"
+            shutil.move(str(skill_dir), external)
+            skill_dir.symlink_to(external, target_is_directory=True)
+
+            result = run_tool("tools/validate_adapters.py", str(bundle))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())

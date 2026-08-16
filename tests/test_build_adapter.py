@@ -278,3 +278,63 @@ def _dotdot_symlinked_output(root: Path) -> tuple[Path, Path, Path]:
     linked_parent = root / "linked-parent"
     linked_parent.symlink_to(target_parent, target_is_directory=True)
     return output, linked_parent / ".." / "target-parent" / "bundle", sentinel
+
+
+class TwelveSkillBuildTests(unittest.TestCase):
+    def test_build_codex_bundle_installs_all_twelve_skills(self):
+        """Catches build_adapter omitting skills beyond the router."""
+        skill_names = (
+            "checkpoint",
+            "checkpoint-brainstorm",
+            "checkpoint-claim",
+            "checkpoint-diagnose",
+            "checkpoint-evidence",
+            "checkpoint-execute",
+            "checkpoint-handoff",
+            "checkpoint-inspect",
+            "checkpoint-plan",
+            "checkpoint-recover",
+            "checkpoint-select-workflow",
+            "checkpoint-verify-gate",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "codex"
+
+            result = run_tool("tools/build_adapter.py", "codex", "--output", str(output))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for name in skill_names:
+                self.assertTrue(
+                    (output / "skills" / name / "SKILL.md").is_file(),
+                    f"missing skill: {name}",
+                )
+
+    def test_build_opencode_bundle_installs_all_twelve_skills(self):
+        """Catches build_adapter omitting skills from the OpenCode bundle."""
+        skill_names = (
+            "checkpoint",
+            "checkpoint-brainstorm",
+            "checkpoint-claim",
+            "checkpoint-diagnose",
+            "checkpoint-evidence",
+            "checkpoint-execute",
+            "checkpoint-handoff",
+            "checkpoint-inspect",
+            "checkpoint-plan",
+            "checkpoint-recover",
+            "checkpoint-select-workflow",
+            "checkpoint-verify-gate",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "opencode"
+
+            result = run_tool(
+                "tools/build_adapter.py", "opencode", "--output", str(output)
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for name in skill_names:
+                self.assertTrue(
+                    (output / "skills" / name / "SKILL.md").is_file(),
+                    f"missing skill: {name}",
+                )

@@ -22,13 +22,23 @@ _CORE_MODULES = (
     "models.py",
     "progress.py",
     "secrets.py",
-    "storage.py",
-    "workflows.py",
     "skill_install.py",
+    "storage.py",
+    "work_chain.py",
+    "work_evidence.py",
+    "work_manifest.py",
+    "work_renderer.py",
+    "work_state.py",
+    "work_store.py",
+    "workflows.py",
 )
 _LAUNCHER_MARKERS = (
     "sys.path.insert(0, str(_bundle_root / \"lib\"))",
     "from agent_checkpoint.cli import main",
+)
+_SKILL_NAMES_RE = re.compile(
+    r'SKILL_NAMES\s*:\s*tuple\[str,\s*\.\.\.\]\s*=\s*\(\s*((?:"[^"]+"\s*,?\s*)+)\)',
+    re.DOTALL,
 )
 
 
@@ -111,6 +121,53 @@ def _validate_native_adapter(bundle: Path) -> list[str]:
     if (bundle / "commands" / "checkpoint.md").is_file():
         return _validate_opencode(bundle)
     return ["missing or unrecognized native adapter files"]
+
+
+def _extract_skill_names(bundle: Path) -> list[str] | None:
+    """Extract SKILL_NAMES from the bundled skill_install.py without importing it."""
+    install_path = bundle / "lib" / "agent_checkpoint" / "skill_install.py"
+    try:
+        source = install_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    match = _SKILL_NAMES_RE.search(source)
+    if not match:
+        return None
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
+def _validate_skill_manifest(bundle: Path) -> list[str]:
+    """Validate that the skills/ directory matches SKILL_NAMES exactly."""
+    skill_names = _extract_skill_names(bundle)
+    if skill_names is None:
+        return ["could not extract SKILL_NAMES from bundled skill_install.py"]
+
+    skills_dir = bundle / "skills"
+    errors: list[str] = []
+
+    # Check every declared skill exists and is valid
+    for name in skill_names:
+        skill_dir = bundle / "skills" / name
+        if skill_dir.is_symlink():
+            errors.append(f"symlinked skill directory: skills/{name}")
+            continue
+        skill_path = Path("skills") / name / "SKILL.md"
+        error = _required_regular_file(
+            bundle, skill_path, f"missing skill: skills/{name}/SKILL.md"
+        )
+        if error:
+            errors.append(error)
+        else:
+            errors.extend(_validate_skill(bundle / skill_path, str(skill_path)))
+
+    # Check for extra (undeclared) skills
+    declared = set(skill_names)
+    if skills_dir.is_dir():
+        for entry in sorted(skills_dir.iterdir()):
+            if entry.name not in declared:
+                errors.append(f"undeclared skill directory: skills/{entry.name}")
+
+    return errors
 
 
 def _validate_claude(bundle: Path) -> list[str]:
@@ -219,14 +276,7 @@ def _validate_codex(bundle: Path) -> list[str]:
             isinstance(capability, str) and capability for capability in capabilities
         ):
             errors.append("invalid Codex capabilities: .codex-plugin/plugin.json")
-    skill = Path("skills/checkpoint/SKILL.md")
-    skill_error = _required_regular_file(
-        bundle, skill, f"missing Codex skill: {skill}"
-    )
-    if skill_error:
-        errors.append(skill_error)
-    else:
-        errors.extend(_validate_skill(bundle / skill, str(skill)))
+    errors.extend(_validate_skill_manifest(bundle))
     return errors
 
 
@@ -242,14 +292,7 @@ def _validate_opencode(bundle: Path) -> list[str]:
                 bundle, Path("commands") / f"{name}.md", action
             )
         )
-    skill = Path("skills/checkpoint/SKILL.md")
-    skill_error = _required_regular_file(
-        bundle, skill, f"missing OpenCode skill: {skill}"
-    )
-    if skill_error:
-        errors.append(skill_error)
-    else:
-        errors.extend(_validate_skill(bundle / skill, str(skill)))
+    errors.extend(_validate_skill_manifest(bundle))
     return errors
 
 
