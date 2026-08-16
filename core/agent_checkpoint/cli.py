@@ -7,8 +7,10 @@ import re
 import sys
 from typing import Sequence
 
+from dataclasses import replace as _dataclass_replace
+
 from .config import ConfigError, ensure_gitignore, load_config
-from .diagnostics import build_doctor, build_handoff, build_resume, build_status
+from .diagnostics import build_doctor, build_handoff, build_resume, build_status, build_work_status
 from .progress import contains_diff_content, validate_entry
 from .secrets import find_secret_kind
 from .storage import (
@@ -18,6 +20,10 @@ from .storage import (
     ValidationError,
 )
 from .skill_install import agent_skill_roots, global_skill_destination, install_skill
+from .work_evidence import validate_evidence
+from .work_manifest import ManifestError, load_manifest
+from .work_state import StateError, parse_state, render_state
+from .work_store import claim as _work_claim
 from .workflows import discard_workflow, initialize_workflow, workflow_types
 
 
@@ -93,6 +99,49 @@ def build_parser() -> argparse.ArgumentParser:
     _add_root(workflow_parser)
     workflow_parser.add_argument("--type", choices=workflow_types())
     workflow_parser.add_argument("--id", default="current", help="work package id")
+
+    work_parser = commands.add_parser("work", help="manage workflow state transitions")
+    work_sub = work_parser.add_subparsers(dest="work_command", required=True)
+
+    work_status_p = work_sub.add_parser("status", help="show work package status")
+    _add_root(work_status_p)
+    work_status_p.add_argument("--json", action="store_true", dest="json_output")
+
+    work_start_p = work_sub.add_parser("start", help="start a unit")
+    _add_root(work_start_p)
+    work_start_p.add_argument("--unit", required=True)
+    work_start_p.add_argument("--plan-revision", type=int, required=True)
+
+    work_pass_p = work_sub.add_parser("pass", help="mark a unit passed")
+    _add_root(work_pass_p)
+    work_pass_p.add_argument("--unit", required=True)
+    work_pass_p.add_argument("--plan-revision", type=int, required=True)
+    work_pass_p.add_argument("--evidence-file", required=True)
+
+    work_fail_p = work_sub.add_parser("fail", help="mark a unit failed")
+    _add_root(work_fail_p)
+    work_fail_p.add_argument("--unit", required=True)
+    work_fail_p.add_argument("--plan-revision", type=int, required=True)
+    work_fail_p.add_argument("--evidence-file", required=True)
+
+    work_recover_p = work_sub.add_parser("recover", help="apply a recovery event")
+    _add_root(work_recover_p)
+    work_recover_p.add_argument("--unit", required=True)
+    work_recover_p.add_argument("--plan-revision", type=int, required=True)
+    work_recover_p.add_argument(
+        "--event", required=True,
+        choices=("retry", "replan", "supersede", "block", "unblock"),
+    )
+    work_recover_p.add_argument("--evidence-file", required=True)
+
+    work_revise_p = work_sub.add_parser("revise", help="increment plan_revision")
+    _add_root(work_revise_p)
+    work_revise_p.add_argument("--plan-revision", type=int, required=True)
+    work_revise_p.add_argument("--evidence-file", required=True)
+
+    work_migrate_p = work_sub.add_parser("migrate", help="migrate legacy work packages (R5-I10)")
+    _add_root(work_migrate_p)
+    work_migrate_p.add_argument("--apply", action="store_true")
 
     skill_install_parser = commands.add_parser(
         "skill-install", help="install the generic skill and optional directory links"
@@ -220,8 +269,126 @@ def _dispatch(arguments: argparse.Namespace) -> int:
                 f"Adapter {report['adapter']} ({report['capability']}).\n{warnings}",
                 file=sys.stderr,
             )
+    elif arguments.command == "work":
+        return _dispatch_work(arguments)
     else:  # pragma: no cover - argparse restricts command values
         raise ValueError(f"Unsupported command: {arguments.command}")
+    return EXIT_SUCCESS
+
+
+def _dispatch_work(arguments: argparse.Namespace) -> int:
+    """Dispatch a `work` subcommand. Errors surface via the main exception handler."""
+    root = Path(arguments.root)
+    config = load_config(root)
+    work_command = arguments.work_command
+
+    if work_command == "status":
+        report = build_work_status(root, config)
+        if report is None:
+            print("No active work package found.", file=sys.stderr)
+            return EXIT_SUCCESS
+        if arguments.json_output:
+            _print_json(report)
+        else:
+            print(
+                f"Work package {report['work_id']} ({report['work_type']}); "
+                f"unit {report['current_unit']} is {report['state']}.",
+                file=sys.stderr,
+            )
+        return EXIT_SUCCESS
+
+    if work_command == "migrate":
+        if not arguments.apply:
+            print(
+                "Dry run: no legacy packages found (migration implemented in R5-I10).",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Apply: no legacy packages found (migration implemented in R5-I10).",
+                file=sys.stderr,
+            )
+        return EXIT_SUCCESS
+
+    # Locate the active work package for all other subcommands.
+    work_root = root / ".agent-checkpoint" / "work"
+    candidates = (
+        sorted(
+            p for p in work_root.iterdir()
+            if p.is_dir() and not p.name.startswith(".staging-") and (p / "CURRENT.md").is_file()
+        )
+        if work_root.is_dir()
+        else []
+    )
+    if not candidates:
+        raise ValidationError("No active work package found")
+    package_path = candidates[0]
+    current_path = package_path / "CURRENT.md"
+    evidence_path = package_path / "EVIDENCE.md"
+
+    if work_command == "revise":
+        evidence_text = Path(arguments.evidence_file).read_text(encoding="utf-8")
+        _reject_secret_text(evidence_text)
+        text = current_path.read_text(encoding="utf-8")
+        state = parse_state(text)
+        if any(unit.state == "running" for unit in state.units):
+            raise ValidationError("work revise refused: a unit is currently running")
+        expected = state.plan_revision + 1
+        if arguments.plan_revision != expected:
+            raise ValidationError(
+                f"work revise refused: expected plan_revision {expected},"
+                f" got {arguments.plan_revision}"
+            )
+        updated = _dataclass_replace(state, plan_revision=arguments.plan_revision)
+        rendered = render_state(text, updated)
+        current_path.write_text(rendered, encoding="utf-8")
+        print(f"Plan revision updated to {arguments.plan_revision}.", file=sys.stderr)
+        return EXIT_SUCCESS
+
+    # start / pass / fail / recover — all go through work_store.claim
+    if work_command == "start":
+        event = "start"
+        evidence_text = ""
+    else:
+        event = {
+            "pass": "pass",
+            "fail": "fail",
+            "recover": getattr(arguments, "event", None),
+        }[work_command]
+        evidence_text = Path(arguments.evidence_file).read_text(encoding="utf-8")
+        _reject_secret_text(evidence_text)
+
+        # Validate evidence against the manifest before claiming.
+        text = current_path.read_text(encoding="utf-8")
+        state = parse_state(text)
+        unit = state.unit(arguments.unit)
+        if unit is None:
+            raise ValidationError(f"unknown unit: {arguments.unit}")
+        try:
+            manifest = load_manifest(state.work_type)
+            required = manifest.evidence_required.get(unit.kind, ())
+        except ManifestError:
+            required = ()
+        unmet = validate_evidence(evidence_text, unit_id=arguments.unit, required=required)
+        if unmet:
+            raise ValidationError(
+                f"checkpoint-evidence is inadequate: missing {', '.join(sorted(unmet))}. "
+                "Provide a checkpoint-evidence document with all required sections."
+            )
+
+    _work_claim(
+        root,
+        current_path,
+        evidence_path,
+        unit_id=arguments.unit,
+        event=event,
+        plan_revision=arguments.plan_revision,
+        evidence_text=evidence_text,
+    )
+    label = {"start": "started", "pass": "passed", "fail": "failed"}.get(
+        work_command, work_command
+    )
+    print(f"Unit {arguments.unit} {label}.", file=sys.stderr)
     return EXIT_SUCCESS
 
 

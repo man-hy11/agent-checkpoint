@@ -882,5 +882,430 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(foreign_file.exists())
 
 
+MINIMAL_STATE = """{
+  "schema_version": 1,
+  "work_id": "test-work",
+  "work_type": "feature",
+  "plan_revision": 1,
+  "brief_confirmed": true,
+  "current_unit": "U1",
+  "max_attempts": 3,
+  "attempt_override": null,
+  "units": [{"id": "U1", "group": null, "kind": "step", "state": "ready", "attempt": 0}],
+  "attempts": []
+}"""
+
+MINIMAL_EVIDENCE = (
+    "## Unit: U1\n"
+    "## Attempt: 1\n"
+    "### command\npython -m pytest\n"
+    "### pass_fail\npassed\n"
+    "### observed_output\nAll tests pass.\n"
+)
+
+
+def _make_work_package(project_root: Path, state_json: str | None = None) -> Path:
+    pkg = project_root / ".agent-checkpoint" / "work" / "test-work"
+    pkg.mkdir(parents=True)
+    current_text = (
+        "# CURRENT.md\n\n"
+        "<!-- agent-checkpoint:state v1 -->\n"
+        + (state_json or MINIMAL_STATE)
+        + "\n<!-- /agent-checkpoint:state -->\n"
+    )
+    (pkg / "CURRENT.md").write_text(current_text, encoding="utf-8")
+    (pkg / "EVIDENCE.md").write_text("# Evidence\n", encoding="utf-8")
+    return pkg
+
+
+class WorkCliTests(unittest.TestCase):
+    def test_work_status_json_includes_work_fields(self):
+        """Catches work status omitting next_skill, allowed_events, hard_rules."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli("work", "status", "--root", str(project_root), "--json")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn("next_skill", payload)
+        self.assertIn("allowed_events", payload)
+        self.assertIn("evidence_required", payload)
+        self.assertIn("hard_rules", payload)
+        self.assertIn("work_id", payload)
+        self.assertIn("work_type", payload)
+        self.assertIn("current_unit", payload)
+        self.assertIn("state", payload)
+        self.assertIn("plan_revision", payload)
+        self.assertEqual(payload["work_id"], "test-work")
+        self.assertEqual(payload["work_type"], "feature")
+        self.assertEqual(payload["current_unit"], "U1")
+        self.assertEqual(payload["state"], "ready")
+        self.assertEqual(payload["plan_revision"], 1)
+        self.assertEqual(payload["next_skill"], "checkpoint-claim")
+        self.assertIn("start", payload["allowed_events"])
+
+    def test_work_status_human_without_json_flag(self):
+        """Catches work status --json being required for structured output."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli("work", "status", "--root", str(project_root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("test-work", result.stderr)
+
+    def test_work_start_transitions_unit_to_running(self):
+        """Catches start not applying the ready->running transition."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = _make_work_package(project_root)
+
+            result = run_cli(
+                "work", "start",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (pkg / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"running"', current)
+
+    def test_work_start_requires_no_evidence_file(self):
+        """Catches start demanding an evidence file it should not need."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli(
+                "work", "start",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--root", str(project_root),
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_work_pass_requires_evidence_file(self):
+        """Catches pass accepting a transition without evidence."""
+        result = run_cli("work", "pass", "--unit", "U1", "--plan-revision", "1")
+        self.assertEqual(result.returncode, 2)
+
+    def test_work_pass_transitions_running_unit_to_passed(self):
+        """Catches pass not applying the running->passed transition."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+            )
+            pkg = _make_work_package(project_root, running_state)
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = run_cli(
+                "work", "pass",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (pkg / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"passed"', current)
+            evidence = (pkg / "EVIDENCE.md").read_text(encoding="utf-8")
+            self.assertIn("## Unit: U1", evidence)
+
+    def test_work_fail_requires_evidence_file(self):
+        """Catches fail accepting a transition without evidence."""
+        result = run_cli("work", "fail", "--unit", "U1", "--plan-revision", "1")
+        self.assertEqual(result.returncode, 2)
+
+    def test_work_fail_transitions_running_unit_to_failed(self):
+        """Catches fail not applying the running->failed transition."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+            )
+            pkg = _make_work_package(project_root, running_state)
+            fail_evidence = (
+                "## Unit: U1\n"
+                "## Attempt: 1\n"
+                "### command\npython -m pytest\n"
+                "### pass_fail\nfailed\n"
+                "### observed_output\nErrors found.\n"
+                "### root_cause\nBug in parser.\n"
+            )
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(fail_evidence, encoding="utf-8")
+
+            result = run_cli(
+                "work", "fail",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (pkg / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"failed"', current)
+
+    def test_work_recover_requires_evidence_file(self):
+        """Catches recover accepting a transition without evidence."""
+        result = run_cli(
+            "work", "recover",
+            "--unit", "U1",
+            "--plan-revision", "1",
+            "--event", "retry",
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_work_recover_retry_transitions_failed_unit_to_ready(self):
+        """Catches recover not applying the failed->retry->ready transition."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            failed_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"failed"')
+                .replace('"attempt": 0', '"attempt": 1')
+                .replace(
+                    '"attempts": []',
+                    '"attempts": [{"unit": "U1", "n": 1, "result": "failed",'
+                    ' "root_cause_fingerprint": "bug-in-parser", "evidence_ref": null}]',
+                )
+            )
+            pkg = _make_work_package(project_root, failed_state)
+            recover_evidence = (
+                "## Unit: U1\n"
+                "## Attempt: 1\n"
+                "### command\npython -m pytest\n"
+                "### pass_fail\nfailed\n"
+                "### observed_output\nErrors found.\n"
+                "### root_cause\nFixed bug.\n"
+            )
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(recover_evidence, encoding="utf-8")
+
+            result = run_cli(
+                "work", "recover",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--event", "retry",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (pkg / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"ready"', current)
+
+    def test_work_revise_requires_evidence_file(self):
+        """Catches revise accepting a plan revision without evidence."""
+        result = run_cli("work", "revise", "--plan-revision", "2")
+        self.assertEqual(result.returncode, 2)
+
+    def test_work_revise_increments_plan_revision(self):
+        """Catches revise not updating plan_revision in the state block."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = _make_work_package(project_root)
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(
+                "## Unit: test-work\n## Attempt: 1\n### command\nreplan\n### pass_fail\npassed\n### observed_output\nOK\n",
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                "work", "revise",
+                "--plan-revision", "2",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (pkg / "CURRENT.md").read_text(encoding="utf-8")
+            import re as _re
+            block = _re.search(
+                r"<!-- agent-checkpoint:state v1 -->\n(.*?)\n<!-- /agent-checkpoint:state -->",
+                current,
+                _re.S,
+            )
+            self.assertIsNotNone(block)
+            payload = json.loads(block.group(1))
+            self.assertEqual(payload["plan_revision"], 2)
+
+    def test_work_revise_refuses_wrong_revision(self):
+        """Catches revise accepting a non-stored-plus-one revision number."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(
+                "## Unit: test-work\n## Attempt: 1\n### command\nreplan\n### pass_fail\npassed\n### observed_output\nOK\n",
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                "work", "revise",
+                "--plan-revision", "5",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+        self.assertEqual(result.returncode, 2)
+
+    def test_work_revise_refuses_while_unit_running(self):
+        """Catches revise proceeding while an in-flight session holds state."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+            )
+            _make_work_package(project_root, running_state)
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(
+                "## Unit: test-work\n## Attempt: 1\n### command\nreplan\n### pass_fail\npassed\n### observed_output\nOK\n",
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                "work", "revise",
+                "--plan-revision", "2",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+        self.assertEqual(result.returncode, 2)
+
+    def test_work_pass_stale_revision_exits_two_and_leaves_files_unchanged(self):
+        """Regression: stale plan_revision refuses pass and leaves durable files unchanged."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+            )
+            pkg = _make_work_package(project_root, running_state)
+            before = (pkg / "CURRENT.md").read_bytes()
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = run_cli(
+                "work", "pass",
+                "--unit", "U1",
+                "--plan-revision", "99",  # stale
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual((pkg / "CURRENT.md").read_bytes(), before)
+
+    def test_work_revise_stale_session_refused_on_next_pass(self):
+        """Regression: after revise the old revision is refused on next pass."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(
+                "## Unit: test-work\n## Attempt: 1\n### command\nreplan\n### pass_fail\npassed\n### observed_output\nOK\n",
+                encoding="utf-8",
+            )
+            # First revise: increment plan_revision to 2
+            revise = run_cli(
+                "work", "revise",
+                "--plan-revision", "2",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+            self.assertEqual(revise.returncode, 0, revise.stderr)
+
+            # Now start U1 with new revision
+            start = run_cli(
+                "work", "start",
+                "--unit", "U1",
+                "--plan-revision", "2",
+                "--root", str(project_root),
+            )
+            self.assertEqual(start.returncode, 0, start.stderr)
+
+            # Stale session uses old revision 1 to pass
+            stale_ev = Path(directory) / "stale_ev.md"
+            stale_ev.write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+            stale_pass = run_cli(
+                "work", "pass",
+                "--unit", "U1",
+                "--plan-revision", "1",  # old revision
+                "--evidence-file", str(stale_ev),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(stale_pass.returncode, 2)
+            self.assertIn("stale", stale_pass.stderr.lower())
+
+    def test_work_migrate_dry_run_exits_zero(self):
+        """Catches migrate default blocking instead of running dry-run."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+
+            result = run_cli("work", "migrate", "--root", str(project_root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry", result.stderr.lower())
+
+    def test_work_refusal_mentions_checkpoint_evidence(self):
+        """Catches missing-evidence refusals not naming checkpoint-evidence."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+            )
+            _make_work_package(project_root, running_state)
+            # Provide an evidence file with missing sections
+            bad_evidence = Path(directory) / "bad.md"
+            bad_evidence.write_text("## Unit: U1\n## Attempt: 1\n", encoding="utf-8")
+
+            result = run_cli(
+                "work", "pass",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--evidence-file", str(bad_evidence),
+                "--root", str(project_root),
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("checkpoint-evidence", result.stderr)
+
+    def test_work_status_json_keys_are_sorted(self):
+        """Catches work status --json emitting keys in arbitrary order."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli("work", "status", "--root", str(project_root), "--json")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        raw = result.stdout
+        # Extract top-level keys from the JSON output
+        payload = json.loads(raw)
+        keys = list(payload.keys())
+        self.assertEqual(keys, sorted(keys))
+
+
 if __name__ == "__main__":
     unittest.main()

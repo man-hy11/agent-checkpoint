@@ -10,6 +10,9 @@ from .git_state import GitState, collect_git_state
 from .models import ProgressDocument
 from .progress import contains_diff_content, contains_line_boundary, parse_progress
 from .secrets import find_secret_kind
+from .work_chain import allowed_events as _work_allowed_events, next_skill as _work_next_skill
+from .work_manifest import ManifestError, load_manifest
+from .work_state import StateError, parse_state
 
 
 _STALE_AFTER = timedelta(days=7)
@@ -140,6 +143,56 @@ def build_doctor(project_root: Path, config: ProjectConfig, adapter: str) -> dic
         "git_available": state.git_available,
         "warnings": "\n".join(warnings),
         "status": build_status(root, config),
+    }
+
+
+def build_work_status(project_root: Path, config: ProjectConfig) -> dict | None:
+    """Return the work-status dict for the active work package, or None if absent."""
+    work_root = project_root / ".agent-checkpoint" / "work"
+    if not work_root.is_dir():
+        return None
+    # Find the first non-staging directory (alphabetically) that contains CURRENT.md
+    try:
+        candidates = sorted(
+            p for p in work_root.iterdir()
+            if p.is_dir() and not p.name.startswith(".staging-") and (p / "CURRENT.md").is_file()
+        )
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    package_path = candidates[0]
+    work_id = package_path.name
+    current_path = package_path / "CURRENT.md"
+    try:
+        text = current_path.read_text(encoding="utf-8")
+        state = parse_state(text)
+    except (OSError, UnicodeError, StateError):
+        return None
+
+    unit = state.unit(state.current_unit) if state.current_unit else None
+
+    try:
+        manifest = load_manifest(state.work_type)
+        unit_kind_for_evidence = unit.kind if unit is not None else "step"
+        evidence_required = list(manifest.evidence_required.get(unit_kind_for_evidence, ()))
+        hard_rules = list(manifest.hard_rules)
+    except ManifestError:
+        evidence_required = []
+        hard_rules = []
+
+    return {
+        "allowed_events": list(_work_allowed_events(state)),
+        "attempt": unit.attempt if unit is not None else 0,
+        "current_unit": state.current_unit,
+        "evidence_required": evidence_required,
+        "hard_rules": hard_rules,
+        "next_skill": _work_next_skill(state),
+        "plan_revision": state.plan_revision,
+        "state": unit.state if unit is not None else None,
+        "unit_kind": unit.kind if unit is not None else None,
+        "work_id": work_id,
+        "work_type": state.work_type,
     }
 
 

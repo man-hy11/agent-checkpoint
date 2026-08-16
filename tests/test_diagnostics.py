@@ -249,3 +249,89 @@ def run_git(root: Path, *arguments: str) -> None:
         capture_output=True,
         text=True,
     )
+
+
+# --- Work status tests ---
+
+from agent_checkpoint.diagnostics import build_work_status  # noqa: E402
+
+
+MINIMAL_WORK_STATE = """{
+  "schema_version": 1,
+  "work_id": "test-work",
+  "work_type": "feature",
+  "plan_revision": 1,
+  "brief_confirmed": true,
+  "current_unit": "U1",
+  "max_attempts": 3,
+  "attempt_override": null,
+  "units": [{"id": "U1", "group": null, "kind": "step", "state": "ready", "attempt": 0}],
+  "attempts": []
+}"""
+
+
+def _make_test_work_package(project_root: Path, state_json: str | None = None) -> Path:
+    pkg = project_root / ".agent-checkpoint" / "work" / "test-work"
+    pkg.mkdir(parents=True)
+    state = state_json or MINIMAL_WORK_STATE
+    current_text = (
+        "# CURRENT.md\n\n"
+        "<!-- agent-checkpoint:state v1 -->\n"
+        + state
+        + "\n<!-- /agent-checkpoint:state -->\n"
+    )
+    (pkg / "CURRENT.md").write_text(current_text, encoding="utf-8")
+    (pkg / "EVIDENCE.md").write_text("# Evidence\n", encoding="utf-8")
+    return pkg
+
+
+class WorkStatusTests(unittest.TestCase):
+    """Catch work status fields missing or incorrect in diagnostics output."""
+
+    def test_build_work_status_returns_all_required_fields(self):
+        """Catches any required field missing from the work status payload."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_test_work_package(project_root)
+
+            report = build_work_status(project_root, ProjectConfig())
+
+        required_keys = {
+            "allowed_events", "attempt", "current_unit", "evidence_required",
+            "hard_rules", "next_skill", "plan_revision", "state",
+            "unit_kind", "work_id", "work_type",
+        }
+        self.assertTrue(required_keys.issubset(report.keys()), report.keys())
+        self.assertEqual(report["work_id"], "test-work")
+        self.assertEqual(report["work_type"], "feature")
+        self.assertEqual(report["next_skill"], "checkpoint-claim")
+        self.assertIn("start", report["allowed_events"])
+
+    def test_build_work_status_no_package_returns_none(self):
+        """Catches build_work_status raising when no work package exists."""
+        with tempfile.TemporaryDirectory() as directory:
+            result = build_work_status(Path(directory), ProjectConfig())
+
+        self.assertIsNone(result)
+
+    def test_build_work_status_evidence_required_comes_from_manifest(self):
+        """Catches evidence_required being hardcoded instead of manifest-driven."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_test_work_package(project_root)
+
+            report = build_work_status(project_root, ProjectConfig())
+
+        self.assertIsInstance(report["evidence_required"], list)
+        self.assertTrue(len(report["evidence_required"]) > 0)
+
+    def test_build_work_status_hard_rules_comes_from_manifest(self):
+        """Catches hard_rules being empty or missing when manifest declares them."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_test_work_package(project_root)
+
+            report = build_work_status(project_root, ProjectConfig())
+
+        self.assertIsInstance(report["hard_rules"], list)
+        self.assertTrue(len(report["hard_rules"]) > 0)
