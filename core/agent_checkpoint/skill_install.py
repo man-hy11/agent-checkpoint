@@ -12,7 +12,93 @@ from .config import ConfigError
 
 _SKILL_NAME = "checkpoint"
 _SOURCE_SKILL = Path(__file__).resolve().parents[1] / "skills" / _SKILL_NAME
+_SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _AGENT_NAMES = frozenset({"claude-code", "codex", "opencode", "agent-compatible", "gemini-cli"})
+
+SKILL_NAMES: tuple[str, ...] = (
+    "checkpoint",
+    "checkpoint-brainstorm",
+    "checkpoint-claim",
+    "checkpoint-diagnose",
+    "checkpoint-evidence",
+    "checkpoint-execute",
+    "checkpoint-handoff",
+    "checkpoint-inspect",
+    "checkpoint-plan",
+    "checkpoint-recover",
+    "checkpoint-select-workflow",
+    "checkpoint-verify-gate",
+)
+
+
+@dataclass(frozen=True)
+class SkillSuiteInstallResult:
+    """All installed skill directories and their agent-specific links."""
+
+    skills: tuple[Path, ...]
+    links: tuple[Path, ...]
+
+
+def install_skill_suite(
+    destination: Path, link_roots: tuple[Path, ...]
+) -> SkillSuiteInstallResult:
+    """Copy all twelve skills atomically, then link each to every link root.
+
+    The entire install is staged and swapped in atomically per-skill. On any
+    error, already-installed skills and links are removed before re-raising,
+    leaving the destination either complete or empty.
+    """
+    destination_root = _safe_directory_path(destination, "skill destination")
+
+    # Check all targets before touching the filesystem
+    for name in SKILL_NAMES:
+        _reject_existing(destination_root / name, f"{name} skill")
+    normalized_link_roots: tuple[Path, ...] = tuple(
+        _safe_directory_path(lr, "skill link destination") for lr in link_roots
+    )
+    for name in SKILL_NAMES:
+        for lr in normalized_link_roots:
+            _reject_existing(lr / name, f"{name} skill link")
+
+    destination_root.mkdir(parents=True, exist_ok=True)
+    installed_skills: list[Path] = []
+    created_links: list[Path] = []
+    try:
+        for name in SKILL_NAMES:
+            source = _SKILLS_DIR / name
+            if not (source / "SKILL.md").is_file():
+                raise OSError(f"bundled skill {name!r} is unavailable")
+            target = destination_root / name
+            staged = Path(tempfile.mkdtemp(prefix=f".{name}-skill-", dir=destination_root))
+            try:
+                shutil.copytree(source, staged / name)
+                os.replace(staged / name, target)
+            finally:
+                if staged.exists() and not staged.is_symlink():
+                    shutil.rmtree(staged, ignore_errors=True)
+            installed_skills.append(target)
+
+        for lr in normalized_link_roots:
+            lr.mkdir(parents=True, exist_ok=True)
+            for name in SKILL_NAMES:
+                target = destination_root / name
+                link = lr / name
+                os.symlink(target, link, target_is_directory=True)
+                created_links.append(link)
+
+    except BaseException:
+        for link in created_links:
+            if link.is_symlink():
+                link.unlink(missing_ok=True)
+        for skill_dir in installed_skills:
+            if skill_dir.is_dir() and not skill_dir.is_symlink():
+                shutil.rmtree(skill_dir, ignore_errors=True)
+        raise
+
+    return SkillSuiteInstallResult(
+        skills=tuple(installed_skills),
+        links=tuple(created_links),
+    )
 
 
 @dataclass(frozen=True)

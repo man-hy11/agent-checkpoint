@@ -69,3 +69,77 @@ class SkillInstallTests(unittest.TestCase):
             second = run_cli("skill-install", "--destination", str(destination))
             self.assertEqual(second.returncode, 2)
             self.assertIn("already exists", second.stderr)
+
+
+class MultiSkillInstallTests(unittest.TestCase):
+    def test_install_skill_suite_copies_all_twelve_skills(self):
+        """Catches install_skill_suite leaving any of the twelve skills absent."""
+        from agent_checkpoint.skill_install import install_skill_suite, SKILL_NAMES
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / ".agent" / "skills"
+            result = install_skill_suite(destination, link_roots=())
+            for name in SKILL_NAMES:
+                self.assertTrue(
+                    (destination / name / "SKILL.md").is_file(),
+                    f"missing installed skill: {name}",
+                )
+            self.assertEqual(len(result.skills), len(SKILL_NAMES))
+
+    def test_install_skill_suite_refuses_if_any_skill_already_exists(self):
+        """Catches install_skill_suite overwriting an existing skill directory."""
+        from agent_checkpoint.skill_install import install_skill_suite
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / ".agent" / "skills"
+            destination.mkdir(parents=True)
+            # Pre-create the checkpoint dir to trigger the guard
+            (destination / "checkpoint").mkdir()
+            from agent_checkpoint.config import ConfigError
+            with self.assertRaises(ConfigError):
+                install_skill_suite(destination, link_roots=())
+
+    def test_install_skill_suite_creates_links_for_all_skills(self):
+        """Catches install_skill_suite not creating links for every installed skill."""
+        from agent_checkpoint.skill_install import install_skill_suite, SKILL_NAMES
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / ".agent" / "skills"
+            claude_root = root / ".claude" / "skills"
+            result = install_skill_suite(destination, link_roots=(claude_root,))
+            for name in SKILL_NAMES:
+                link = claude_root / name
+                self.assertTrue(link.is_symlink(), f"missing link for {name}")
+                self.assertEqual(link.resolve(), (destination / name).resolve())
+            # Total links = len(SKILL_NAMES) * len(link_roots)
+            self.assertEqual(len(result.links), len(SKILL_NAMES))
+
+    def test_install_skill_suite_is_atomic_on_partial_failure(self):
+        """Catches install_skill_suite leaving partial state on error."""
+        import shutil as _shutil
+        import unittest.mock as mock
+        from agent_checkpoint.skill_install import install_skill_suite
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / ".agent" / "skills"
+            # Simulate failure mid-install by patching shutil.copytree to fail
+            # on the third call (first two skill copies succeed, then error)
+            call_count = {"n": 0}
+            real_copytree = _shutil.copytree
+            def failing_copytree(src, dst, **kw):
+                call_count["n"] += 1
+                if call_count["n"] >= 3:
+                    raise OSError("simulated disk full")
+                return real_copytree(src, dst, **kw)
+            with mock.patch("agent_checkpoint.skill_install.shutil.copytree", failing_copytree):
+                try:
+                    install_skill_suite(destination, link_roots=())
+                except (OSError, Exception):
+                    pass
+            # After failure: destination should be absent or empty (no partial install)
+            if destination.exists():
+                installed = list(destination.iterdir())
+                self.assertEqual(
+                    len(installed), 0,
+                    f"partial install left {len(installed)} items: {installed}",
+                )

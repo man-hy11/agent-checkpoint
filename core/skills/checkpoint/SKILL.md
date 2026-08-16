@@ -1,70 +1,45 @@
 ---
 name: checkpoint
-description: Use when saving resumable project progress, recording current work and next actions, or preparing context for a later session or context window.
+description: Routes to the correct phase skill by running work status — determines which of the twelve checkpoint skills acts next and dispatches accordingly.
 ---
 
-# Checkpoint
+# Checkpoint — Router
 
-Create a concise, durable project checkpoint. Capture current facts and decisions,
-not a transcript, and never include credentials or diff content.
+Determine which skill acts next by reading the current work state:
 
-## Template-backed planning
+```bash
+agent-checkpoint work status --root . --json
+```
 
-Before the first checkpoint for a work item, choose the workflow type from the
-bundled selector (`project`, `feature`, `bugfix`, `refactor`, `upgrade`,
-`migration`, `performance`, `integration`, `release`, or `spike`) and create
-its work package:
+The `next_skill` field names the skill to invoke. Invoke it now. Do not perform any other action in this skill.
+
+## Routing table (summary)
+
+See `_checkpoint-shared/chain-v1.md` for the full ordered routing table. Representative cases:
+
+| Condition | next_skill |
+|---|---|
+| No state block | checkpoint-select-workflow |
+| `brief_confirmed` false | checkpoint-brainstorm |
+| Units empty or current superseded | checkpoint-plan |
+| All units completed | checkpoint-plan |
+| Current unit blocked | checkpoint-recover |
+| Current unit failed, no fingerprint | checkpoint-diagnose |
+| Current unit failed, fingerprint set | checkpoint-recover |
+| Current unit pending or ready | checkpoint-claim |
+| Current unit running, kind gate | checkpoint-verify-gate |
+| Current unit running, kind step | checkpoint-execute |
+
+## Initializing a new work package
+
+If no work package exists yet, run:
 
 ```bash
 agent-checkpoint workflow --type TYPE --id current
 ```
 
-If no workflow type has been specified yet, ask the user to choose one before
-running the command. Do not infer or silently default the type. The work id may
-remain `current` unless the user wants multiple concurrent work packages.
+Then re-run `work status` to confirm `next_skill` and proceed.
 
-Read `.agent-checkpoint/work/current/prompts/PLAN_*.md` and populate the
-materialized package's `CURRENT.md` and planning files. Then make each
-checkpoint entry a short pointer to that package: work type, current Step/Gate,
-and the next-session read order `PROGRESS.md -> CURRENT.md ->
-CONTINUE_PROMPT.md`. Keep detailed plans and evidence in the work package.
+## This skill never acts directly
 
-Before filling a planning template, check whether the user has supplied the
-goal, scope, success criteria, constraints, and affected area needed by that
-workflow. If any material planning field is unknown, ask concise questions and
-wait for the answers; do not fabricate details or advance `CURRENT.md` to an
-implementation Step. Record only confirmed answers in the package.
-
-Compose an entry with these exact headings:
-
-```markdown
-## 1. Goal / Plan
-- State the goal and the current high-level plan.
-
-## 2. Progress
-- List completed work and why it matters.
-
-## 3. Current Focus
-- Record the active work and its status.
-
-## 4. Next Actions / TODO
-- List small next steps in priority order.
-
-## 5. Decisions / Constraints / Notes
-- Preserve decisions, constraints, risks, and essential context.
-```
-
-Keep bullets brief and write only what a later agent needs to resume. Pass the
-completed entry on standard input to:
-
-```bash
-agent-checkpoint write --entry -
-```
-
-Add each concrete test/build result with a repeated `--verification TEXT`
-option. The CLI persists those results separately from decisions and renders
-them in handoff output. Follow the `Language:` instruction produced by resume
-and handoff.
-
-Use `--root PATH` when the project root is not the current directory. Report the
-CLI result briefly; do not claim the checkpoint was saved if the command failed.
+It reads state and dispatches. All execution, verification, evidence recording, and recovery are performed by the named skill, not here.
