@@ -285,6 +285,96 @@ def _make_test_work_package(project_root: Path, state_json: str | None = None) -
     return pkg
 
 
+DELTA_BODY = (
+    "## 2. Progress\n- Rewired diagnostics to prefer CURRENT.md\n\n"
+    "## 5. Decisions / Constraints / Notes\n- Kept the legacy fallback path intact\n"
+)
+
+
+class WorkStatusComposedDiagnosticsTests(unittest.TestCase):
+    """Catch resume/handoff failing to source current-state fields from CURRENT.md."""
+
+    def test_handoff_sources_current_focus_and_next_actions_from_work_status(self):
+        """Catches build_handoff still reading Current Focus/Next Actions from PROGRESS.md body."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_test_work_package(project_root)
+            write_progress(project_root, VALID_BODY)
+
+            handoff = build_handoff(project_root, ProjectConfig(), max_chars=4_000)
+
+        self.assertIn("Unit U1 (test-work): ready", handoff)
+        self.assertIn("Next skill: checkpoint-claim", handoff)
+        self.assertIn("Allowed events: start", handoff)
+        # The PROGRESS.md entry's own Current Focus/Next Actions text must not leak through.
+        self.assertNotIn("- Parser", handoff)
+        self.assertNotIn("- Test it", handoff)
+
+    def test_handoff_falls_back_to_progress_body_without_work_package(self):
+        """Catches build_handoff output changing when no work package is present."""
+        with git_project() as project_root:
+            write_file(project_root / "changed.py", "uncommitted-file-content")
+            write_progress(project_root, VALID_BODY)
+
+            handoff = build_handoff(
+                project_root,
+                ProjectConfig(),
+                verification=("tests: pass",),
+                max_chars=2_000,
+            )
+
+        self.assertIn("Current Focus:\n- Parser", handoff)
+        self.assertIn("Next Actions:\n- Test it", handoff)
+
+    def test_resume_composes_work_status_and_delta_progress_entry(self):
+        """Catches build_resume failing to compose CURRENT.md with the latest delta entry."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_test_work_package(project_root)
+            write_progress(project_root, DELTA_BODY)
+
+            resume = build_resume(project_root, ProjectConfig(), max_chars=4_000)
+
+        self.assertIn("Work package: test-work", resume)
+        self.assertIn("Unit U1 (test-work): ready", resume)
+        self.assertIn("Next skill: checkpoint-claim", resume)
+        self.assertIn("Rewired diagnostics to prefer CURRENT.md", resume)
+        self.assertIn("Kept the legacy fallback path intact", resume)
+
+    def test_resume_falls_back_to_raw_body_without_work_package(self):
+        """Catches build_resume output changing when no work package is present."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            write_progress(project_root, VALID_BODY)
+
+            resume = build_resume(project_root, ProjectConfig(), max_chars=2_000)
+
+        self.assertIn(VALID_BODY.rstrip(), resume)
+        self.assertNotIn("Work package:", resume)
+
+    def test_resume_and_handoff_match_pre_revision_fixture_without_work_package(self):
+        """Catches any change to resume/handoff output for a no-work-package project."""
+        with git_project() as project_root:
+            write_file(project_root / "changed.py", "uncommitted-file-content")
+            write_progress(project_root, VALID_BODY)
+
+            resume = build_resume(project_root, ProjectConfig(), max_chars=4_000)
+            handoff = build_handoff(
+                project_root,
+                ProjectConfig(),
+                verification=("tests: pass",),
+                max_chars=4_000,
+            )
+
+        expected_resume = (
+            "# Checkpoint Resume\nLanguage: English\n\n" + VALID_BODY.rstrip() + "\n"
+        )
+        self.assertEqual(resume, expected_resume)
+        self.assertIn("Current Focus:\n- Parser", handoff)
+        self.assertIn("Next Actions:\n- Test it", handoff)
+        self.assertIn("Recent Decisions:\n- Standard library only", handoff)
+
+
 class WorkStatusTests(unittest.TestCase):
     """Catch work status fields missing or incorrect in diagnostics output."""
 

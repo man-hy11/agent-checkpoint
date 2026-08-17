@@ -46,10 +46,13 @@ def build_resume(
     root, progress_path, _ = resolve_checkpoint_paths(project_root, config)
     document, error = _read_document(progress_path)
     language = _safe_metadata(config.language) or "unspecified"
+    work_status = build_work_status(root, config)
     if error is not None:
         content = f"Checkpoint resume unavailable: {error}"
     elif document is None or not document.entries:
         content = "No checkpoint has been recorded."
+    elif work_status is not None:
+        content = _compose_resume_content(work_status, document.entries[0].body)
     else:
         content = document.entries[0].body.rstrip()
     rendered = f"# Checkpoint Resume\nLanguage: {language}\n\n{content}\n"
@@ -67,6 +70,7 @@ def build_handoff(
     state = collect_git_state(root, config) if config.include_git_hints else GitState()
     document, error = _read_document(progress_path)
     entry_body = document.entries[0].body if document and document.entries else ""
+    work_status = build_work_status(root, config)
     results = (
         *_stored_verification(entry_body),
         *_safe_verification(verification),
@@ -88,14 +92,20 @@ def build_handoff(
                 changed_files,
             )
         )
+    if work_status is not None:
+        current_focus = _work_status_current_focus(work_status)
+        next_actions = _work_status_next_actions(work_status)
+    else:
+        current_focus = _section(entry_body, "## 3. Current Focus") or _availability(error)
+        next_actions = _section(entry_body, "## 4. Next Actions / TODO") or _availability(error)
     lines.extend(
         (
             "Verification results:",
             "\n".join(f"- {result}" for result in results) or "- None supplied",
             "Current Focus:",
-            _section(entry_body, "## 3. Current Focus") or _availability(error),
+            current_focus,
             "Next Actions:",
-            _section(entry_body, "## 4. Next Actions / TODO") or _availability(error),
+            next_actions,
             "Recent Decisions:",
             _section(entry_body, "## 5. Decisions / Constraints / Notes")
             or _availability(error),
@@ -212,6 +222,49 @@ def _read_document(path: Path) -> tuple[ProgressDocument | None, str | None]:
         return parse_progress(text), None
     except ValueError:
         return None, "checkpoint document is invalid"
+
+
+def _work_status_current_focus(work_status: dict) -> str:
+    """Render the active unit and its state from a work-status payload."""
+    unit = work_status["current_unit"] or "none"
+    state = work_status["state"] or "unknown"
+    return f"- Unit {unit} ({work_status['work_id']}): {state}"
+
+
+def _work_status_next_actions(work_status: dict) -> str:
+    """Render the next permitted skill and events from a work-status payload."""
+    events = ", ".join(work_status["allowed_events"]) or "none"
+    return (
+        f"- Next skill: {work_status['next_skill']}\n"
+        f"- Allowed events: {events}"
+    )
+
+
+def _compose_resume_content(work_status: dict, entry_body: str) -> str:
+    """Compose CURRENT.md's current-state fields with the latest delta entry."""
+    header = (
+        f"Work package: {work_status['work_id']} (plan revision "
+        f"{work_status['plan_revision']})\n"
+        f"{_work_status_current_focus(work_status)}\n"
+        f"{_work_status_next_actions(work_status)}"
+    )
+    delta_sections = "\n\n".join(
+        part
+        for part in (
+            _labeled_section(entry_body, "## 2. Progress", "Progress"),
+            _labeled_section(
+                entry_body, "## 5. Decisions / Constraints / Notes", "Decisions / Constraints / Notes"
+            ),
+            _labeled_section(entry_body, "## 6. Verification", "Verification"),
+        )
+        if part
+    )
+    return f"{header}\n\n{delta_sections}".rstrip() if delta_sections else header
+
+
+def _labeled_section(body: str, heading: str, label: str) -> str:
+    content = _section(body, heading)
+    return f"{label}:\n{content}" if content else ""
 
 
 def _section(body: str, heading: str) -> str:
