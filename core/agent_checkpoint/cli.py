@@ -22,6 +22,7 @@ from .storage import (
 from .skill_install import agent_skill_roots, global_skill_destination, install_skill
 from .work_evidence import validate_evidence
 from .work_manifest import ManifestError, load_manifest
+from .work_migration import apply_migration, plan_migration
 from .work_state import StateError, parse_state, render_state
 from .work_store import claim as _work_claim
 from .workflows import discard_workflow, initialize_workflow, workflow_types
@@ -139,9 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
     work_revise_p.add_argument("--plan-revision", type=int, required=True)
     work_revise_p.add_argument("--evidence-file", required=True)
 
-    work_migrate_p = work_sub.add_parser("migrate", help="migrate legacy work packages (R5-I10)")
+    work_migrate_p = work_sub.add_parser("migrate", help="migrate legacy work packages")
     _add_root(work_migrate_p)
     work_migrate_p.add_argument("--apply", action="store_true")
+    work_migrate_p.add_argument("--json", action="store_true", dest="json_output")
 
     skill_install_parser = commands.add_parser(
         "skill-install", help="install the generic skill and optional directory links"
@@ -298,16 +300,36 @@ def _dispatch_work(arguments: argparse.Namespace) -> int:
         return EXIT_SUCCESS
 
     if work_command == "migrate":
-        if not arguments.apply:
-            print(
-                "Dry run: no legacy packages found (migration implemented in R5-I10).",
-                file=sys.stderr,
-            )
+        report = apply_migration(root) if arguments.apply else plan_migration(root)
+        mode = "apply" if arguments.apply else "dry-run"
+        payload = {
+            "applied": report.applied,
+            "mode": mode,
+            "actions": [
+                {
+                    "work_id": action.work_id,
+                    "category": action.classification.category,
+                    "reasons": list(action.classification.reasons),
+                    "will_migrate": action.will_migrate,
+                    "backup_path": (
+                        str(action.backup_path) if action.backup_path is not None else None
+                    ),
+                }
+                for action in report.actions
+            ],
+        }
+        verb = "Apply" if arguments.apply else "Dry run"
+        if arguments.json_output:
+            _print_json(payload)
+        elif not report.actions:
+            print(f"{verb}: no legacy packages found.", file=sys.stderr)
         else:
-            print(
-                "Apply: no legacy packages found (migration implemented in R5-I10).",
-                file=sys.stderr,
-            )
+            for action in report.actions:
+                status = "migrated" if action.will_migrate else "refused"
+                print(
+                    f"{verb}: {action.work_id} -> {action.classification.category} ({status}).",
+                    file=sys.stderr,
+                )
         return EXIT_SUCCESS
 
     # Locate the active work package for all other subcommands.
