@@ -2,6 +2,8 @@ import json
 import unittest
 
 from agent_checkpoint.progress import (
+    DELTA_SECTIONS,
+    REQUIRED_SECTIONS,
     contains_diff_content,
     parse_progress,
     render_entry,
@@ -147,6 +149,38 @@ class ProgressTests(unittest.TestCase):
                 "## 5. Decisions / Constraints / Notes",
             ],
         )
+
+    def test_validate_entry_accepts_delta_only_shape(self):
+        """Catches a delta-only entry (Progress + Decisions) being rejected."""
+        body = (
+            "## 2. Progress\n- Rewired diagnostics\n\n"
+            "## 5. Decisions / Constraints / Notes\n- Kept stdlib-only\n"
+        )
+        self.assertEqual(validate_entry(body), [])
+
+    def test_validate_entry_accepts_legacy_five_heading_shape(self):
+        """Catches a legacy five-heading entry regressing after the delta relaxation."""
+        self.assertEqual(validate_entry(VALID_BODY), [])
+
+    def test_validate_entry_rejects_entry_missing_both_shapes(self):
+        """Catches an entry satisfying neither the legacy nor the delta heading set."""
+        body = "## 1. Goal / Plan\n- Build it\n\n## 2. Progress\n- Started\n"
+        missing = validate_entry(body)
+        self.assertTrue(missing)
+        self.assertTrue(set(missing).issubset(set(REQUIRED_SECTIONS)))
+
+    def test_validate_entry_accepts_delta_shape_with_verification_appended(self):
+        """Catches optional Verification breaking delta-only validation."""
+        body = (
+            "## 2. Progress\n- Rewired diagnostics\n\n"
+            "## 5. Decisions / Constraints / Notes\n- Kept stdlib-only\n\n"
+            "## 6. Verification\n- tests: pass\n"
+        )
+        self.assertEqual(validate_entry(body), [])
+
+    def test_delta_sections_is_a_subset_of_required_sections(self):
+        """Catches DELTA_SECTIONS drifting to a heading REQUIRED_SECTIONS does not define."""
+        self.assertTrue(set(DELTA_SECTIONS).issubset(set(REQUIRED_SECTIONS)))
 
     def test_parse_and_render_round_trip_preserves_pinned_entry(self):
         """Catches a renderer or parser that loses entry pinning or body text."""

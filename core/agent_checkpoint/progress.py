@@ -14,6 +14,13 @@ REQUIRED_SECTIONS = (
     "## 5. Decisions / Constraints / Notes",
 )
 
+# Delta-only entries restate nothing that CURRENT.md already owns (Goal/Plan,
+# Current Focus, Next Actions): only what changed this session.
+DELTA_SECTIONS = (
+    "## 2. Progress",
+    "## 5. Decisions / Constraints / Notes",
+)
+
 _ENTRY_SEPARATOR = re.compile(r"(?m)^---\s*$")
 _ENTRY_HEADING = re.compile(
     r"^## Checkpoint(?P<pinned> \[PINNED\])? (?P<created_at>.+)$"
@@ -31,8 +38,20 @@ _LINE_BOUNDARIES = frozenset("\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
 
 
 def validate_entry(body: str) -> list[str]:
-    """Return required section headings absent from a checkpoint body."""
-    return [heading for heading in REQUIRED_SECTIONS if heading not in body]
+    """Return missing headings, or ``[]`` if the body satisfies either accepted shape.
+
+    A checkpoint body is valid if it contains all of ``REQUIRED_SECTIONS`` (the
+    legacy five-heading shape) or both of ``DELTA_SECTIONS`` (the delta-only
+    shape). When neither shape is satisfied, the legacy headings absent from
+    the body are returned so the caller can report what is missing.
+    """
+    missing_required = [heading for heading in REQUIRED_SECTIONS if heading not in body]
+    if not missing_required:
+        return []
+    missing_delta = [heading for heading in DELTA_SECTIONS if heading not in body]
+    if not missing_delta:
+        return []
+    return missing_required
 
 
 def contains_diff_content(text: str) -> bool:
