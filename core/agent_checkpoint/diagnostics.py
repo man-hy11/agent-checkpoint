@@ -161,7 +161,7 @@ def build_work_status(project_root: Path, config: ProjectConfig) -> dict | None:
     work_root = project_root / ".agent-checkpoint" / "work"
     if not work_root.is_dir():
         return None
-    # Find the first non-staging directory (alphabetically) that contains CURRENT.md
+    # Find the first non-staging directory (alphabetically) that contains a parsable CURRENT.md
     try:
         candidates = sorted(
             p for p in work_root.iterdir()
@@ -171,13 +171,21 @@ def build_work_status(project_root: Path, config: ProjectConfig) -> dict | None:
         return None
     if not candidates:
         return None
-    package_path = candidates[0]
-    work_id = package_path.name
-    current_path = package_path / "CURRENT.md"
-    try:
-        text = current_path.read_text(encoding="utf-8")
-        state = parse_state(text)
-    except (OSError, UnicodeError, StateError):
+
+    state = None
+    work_id = None
+    for package_path in candidates:
+        work_id = package_path.name
+        current_path = package_path / "CURRENT.md"
+        try:
+            text = current_path.read_text(encoding="utf-8")
+            state = parse_state(text)
+        except (OSError, UnicodeError, StateError):
+            # Skip packages with unreadable or unparsable CURRENT.md
+            continue
+        break
+
+    if state is None:
         return None
 
     unit = state.unit(state.current_unit) if state.current_unit else None
