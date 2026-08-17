@@ -24,6 +24,37 @@ class NpmPackageTests(unittest.TestCase):
         self.assertFalse(any("/__pycache__/" in name for name in names))
         self.assertFalse(any(name.endswith((".pyc", ".pyo", ".pyd")) for name in names))
 
+    def test_package_excludes_dotfile_directories_from_template_assets(self):
+        """Catches stray dotfile-directory state (e.g. another tool's session
+        files) leaking into the published tarball from beneath
+        core/agent_checkpoint/assets/development-templates/, where a
+        directory named directly in package.json's ``files`` array is walked
+        on disk regardless of git-tracking state or the root .npmignore."""
+        packed = subprocess.run(
+            ["npm", "pack", "--dry-run", "--json"],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(packed.returncode, 0, packed.stderr)
+        names = [item["path"] for item in json.loads(packed.stdout)[0]["files"]]
+        template_paths = [
+            name
+            for name in names
+            if name.startswith("core/agent_checkpoint/assets/development-templates/")
+        ]
+        self.assertTrue(template_paths, "expected template assets to be packaged")
+        dotdir_leaks = [
+            name
+            for name in template_paths
+            if any(part.startswith(".") for part in name.split("/")[4:-1])
+        ]
+        self.assertEqual(
+            dotdir_leaks, [],
+            f"dotfile-directory paths leaked into the npm package: {dotdir_leaks}",
+        )
+
     def test_package_exposes_cli_wrapper_and_bundles_python_core(self):
         """Catches an npx package that cannot run outside the repository checkout."""
         package = json.loads((PROJECT_ROOT / "package.json").read_text(encoding="utf-8"))
