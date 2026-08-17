@@ -251,6 +251,16 @@ def run_git(root: Path, *arguments: str) -> None:
     )
 
 
+def current_branch(root: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
 # --- Work status tests ---
 
 from agent_checkpoint.diagnostics import build_work_status  # noqa: E402
@@ -357,6 +367,7 @@ class WorkStatusComposedDiagnosticsTests(unittest.TestCase):
         with git_project() as project_root:
             write_file(project_root / "changed.py", "uncommitted-file-content")
             write_progress(project_root, VALID_BODY)
+            branch = current_branch(project_root)
 
             resume = build_resume(project_root, ProjectConfig(), max_chars=4_000)
             handoff = build_handoff(
@@ -370,9 +381,29 @@ class WorkStatusComposedDiagnosticsTests(unittest.TestCase):
             "# Checkpoint Resume\nLanguage: English\n\n" + VALID_BODY.rstrip() + "\n"
         )
         self.assertEqual(resume, expected_resume)
-        self.assertIn("Current Focus:\n- Parser", handoff)
-        self.assertIn("Next Actions:\n- Test it", handoff)
-        self.assertIn("Recent Decisions:\n- Standard library only", handoff)
+
+        expected_handoff = "\n".join(
+            (
+                "# Checkpoint Handoff",
+                "Language: English",
+                f"Root: {project_root}",
+                f"Branch: {branch}",
+                f"Worktree: {project_root}",
+                "Changed files:",
+                "- PROGRESS.md",
+                "- changed.py",
+                "Verification results:",
+                "- tests: pass",
+                "Current Focus:",
+                "- Parser",
+                "Next Actions:",
+                "- Test it",
+                "Recent Decisions:",
+                "- Standard library only",
+                "",
+            )
+        )
+        self.assertEqual(handoff, expected_handoff)
 
 
 class WorkStatusTests(unittest.TestCase):
