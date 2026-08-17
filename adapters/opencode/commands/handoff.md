@@ -8,14 +8,13 @@ Create a handoff summary with the installed CLI:
 agent-checkpoint handoff
 ```
 
-Use `--root PATH` or `--max-chars NUMBER` when needed. If `agent-checkpoint`
-is unavailable, run the following from this project's source directory. Keep
-verification results separate from recent decisions and follow the rendered
-`Language:` instruction. Ensure
-the prefix's `bin` directory is on `PATH`, and retry:
+Use `--root PATH` or `--max-chars NUMBER` when needed. Keep verification
+results separate from recent decisions and follow the rendered `Language:`
+instruction. If `agent-checkpoint` is unavailable, reinstall the CLI and
+retry:
 
 ```bash
-python3 tools/install.py --prefix "$HOME/.local"
+npm install -g agent-checkpoint
 ```
 
 For an installed CLI that reports an error, run:

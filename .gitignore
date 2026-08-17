@@ -40,3 +40,6 @@ PROGRESS_ARCHIVE.md
 
 # .docs (local working notes, not for repo)
 .docs/
+
+# local dev loop helper, not part of the distributed package
+/run-step-loop.sh

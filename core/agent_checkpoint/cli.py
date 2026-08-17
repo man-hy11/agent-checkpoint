@@ -17,7 +17,7 @@ from .storage import (
     SecretDetected,
     ValidationError,
 )
-from .skill_install import agent_skill_roots, global_skill_destination, install_skill
+from .skill_install import agent_skill_roots, global_skill_destination, install_skill_suite
 from .work_evidence import validate_evidence
 from .work_manifest import ManifestError, load_manifest
 from .work_migration import apply_migration, plan_migration
@@ -205,11 +205,12 @@ def _dispatch(arguments: argparse.Namespace) -> int:
             if arguments.global_install
             else Path(arguments.destination)
         )
-        result = install_skill(
+        result = install_skill_suite(
             destination,
             tuple(Path(link) for link in arguments.link) + agent_skill_roots(tuple(arguments.agent)),
         )
-        print(f"Generic skill installed: {result.skill}", file=sys.stderr)
+        for skill in result.skills:
+            print(f"Skill installed: {skill}", file=sys.stderr)
         for link in result.links:
             print(f"Skill link created: {link}", file=sys.stderr)
         return EXIT_SUCCESS

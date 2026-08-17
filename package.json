@@ -15,7 +15,7 @@
     "core/bin/agent-checkpoint",
     "core/agent_checkpoint/*.py",
     "core/agent_checkpoint/assets",
-    "core/skills/checkpoint",
+    "core/skills",
     "README.md"
   ],
   "engines": {

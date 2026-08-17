@@ -37,12 +37,11 @@ agent-checkpoint write --entry -
 Add each concrete test/build result with a repeated `--verification TEXT`
 option.
 
-Use `--root PATH` when needed. If `agent-checkpoint` is unavailable, run the
-following from this project's source directory, ensure the prefix's `bin`
-directory is on `PATH`, and retry:
+Use `--root PATH` when needed. If `agent-checkpoint` is unavailable, reinstall
+the CLI and retry:
 
 ```bash
-python3 tools/install.py --prefix "$HOME/.local"
+npm install -g agent-checkpoint
 ```
 
 If the CLI is present but the checkpoint operation fails, diagnose it with:

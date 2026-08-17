@@ -85,6 +85,10 @@ agent-checkpoint --help
 npx --yes agent-checkpoint --help
 ```
 
+Installing the package also runs a `postinstall` step that places the generic
+skill at `~/.agent/skills/checkpoint` and links it into any global skill
+directories it can detect, unless a skill is already installed there.
+
 Publishing is deliberately separate from this repository change: use your
 approved npm account and package name before relying on the registry form. To
 test a checkout before publication, install that checkout directly:
@@ -96,55 +100,79 @@ npm install -g /absolute/path/to/agent-checkpoint
 The wrapper uses `python3` by default. Set `AGENT_CHECKPOINT_PYTHON` to select
 another Python 3.11+ executable.
 
-### Python prefix installation
+### npx skills add
 
-From this repository, install the shared CLI into an explicit prefix:
-
-```bash
-python3 tools/install.py --prefix "$HOME/.local"
-```
-
-The installer writes the package under
-`$HOME/.local/share/agent-checkpoint` and the launcher at
-`$HOME/.local/bin/agent-checkpoint`. It never edits shell startup files, so add
-`$HOME/.local/bin` to `PATH` yourself if necessary. Running
-`python3 tools/install.py` without `--prefix` prints the recommended locations
-without changing anything. Installation refuses symlinks in the prefix or its
-`share`/`bin` destination ancestors, including with `--force`.
-
-## Install the generic skill globally
-
-`skill-install` copies the canonical generic skill once to
-`~/.agent/skills/checkpoint`, then creates symbolic links only for the agents
-you select. It never overwrites an existing skill or link.
+The skill package also installs with the community
+[`skills`](https://www.npmjs.com/package/skills) CLI, which clones this
+repository and links the `SKILL.md` files it finds under `core/skills/` into
+your agent's skill directory. Pass `--full-depth` so it looks past the
+repository root:
 
 ```bash
-agent-checkpoint skill-install --global \
-  --agent claude-code \
-  --agent codex \
-  --agent opencode
+# Install every checkpoint skill
+npx skills add https://github.com/man-hy11/agent-checkpoint --full-depth --all
+
+# Install a single skill (for example, the router)
+npx skills add https://github.com/man-hy11/agent-checkpoint --full-depth --skill checkpoint
 ```
 
-The selected link targets are `~/.claude/skills/checkpoint`,
-`$CODEX_HOME/skills/checkpoint` (or `~/.codex/skills/checkpoint` when
-`CODEX_HOME` is unset), and
-`~/.config/opencode/skills/checkpoint`. Choose `--agent agent-compatible` to
-also link `~/.agents/skills/checkpoint`, which OpenCode discovers as an
-agent-compatible global skill location. You may instead choose exact paths:
+This installs the skill definitions only; it does not install the
+`agent-checkpoint` CLI. Install the CLI with npm as described above so the
+commands referenced by the skills are on `PATH`.
 
-```bash
-agent-checkpoint skill-install --destination .agent/skills \
-  --link .claude/skills \
-  --link .codex/skills
+## Where things get installed
+
+The CLI and the skill definitions are two separate deliverables, and each
+install path puts them in different places. There is no single directory that
+holds everything.
+
+### The CLI
+
+`npm install -g agent-checkpoint` puts the `agent-checkpoint` executable
+wherever your npm global prefix resolves to (for example
+`/usr/local/lib/node_modules` or your `nvm`/`npm config get prefix` location).
+This is ordinary npm global-install behavior, not something this package
+controls.
+
+### The skill files (`SKILL.md`)
+
+Two different tools manage skill files, and they use two different canonical
+directories:
+
+| Installer | Canonical (real files) | Naming |
+|---|---|---|
+| `agent-checkpoint skill-install` (also run by npm's `postinstall`) | `~/.agent/skills/` | singular `.agent` |
+| `npx skills add ... -g` (the community `skills` CLI) | `~/.agents/skills/` | plural `.agents` |
+
+Only one of these two directories holds the actual files for a given install;
+the other tool never writes to it. Whichever one is canonical, every
+supported coding agent gets a symlink pointing back to it — the agent itself
+never stores its own copy:
+
+```
+~/.claude/skills/checkpoint*              -> canonical directory above
+~/.codex/skills/checkpoint*                (or $CODEX_HOME/skills)
+~/.config/opencode/skills/checkpoint*
 ```
 
-Gemini CLI does not load generic `SKILL.md` directories, so it is intentionally
-not a symbolic-link target. Install its native extension from the built adapter
-instead:
+`agent-checkpoint skill-install --agent agent-compatible` additionally links
+`~/.agents/skills/checkpoint*` even when `~/.agent/skills/` is the canonical
+copy — that one flag is the only place the two naming conventions overlap.
 
-```bash
-gemini extensions install "$PWD/dist/gemini-cli"
-```
+Gemini CLI does not read generic `SKILL.md` directories at all, so neither
+installer links anything for it; it needs the native extension built by
+`tools/build_adapter.py gemini-cli` instead.
+
+### Practical effect
+
+Because the CLI and the skills install independently, running only one half
+leaves the other missing. Installing the CLI without also running
+`skill-install` (or `npx skills add`) means no coding agent can discover the
+skill; installing the skill without the CLI means the skill's `SKILL.md`
+instructions reference an `agent-checkpoint` command that is not on `PATH`.
+`npm install -g agent-checkpoint` handles both automatically via its
+`postinstall` step; the other install paths require running each step
+yourself.
 
 ## Initialize a project
 
@@ -246,8 +274,7 @@ Build the adapter you need first. The shared CLI can be installed once for all
 runtimes, but each native adapter still needs its own installation step.
 
 ```bash
-python3 tools/install.py --prefix "$HOME/.local"
-export PATH="$HOME/.local/bin:$PATH"
+npm install -g agent-checkpoint
 ```
 
 #### Claude Code

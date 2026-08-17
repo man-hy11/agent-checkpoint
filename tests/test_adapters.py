@@ -309,7 +309,7 @@ class CodexOpenCodeAdapterTests(unittest.TestCase):
             )
 
             self.assertIn("agent-checkpoint write --entry -", command)
-            self.assertIn("tools/install.py", command)
+            self.assertIn("npm install -g agent-checkpoint", command)
 
 
 class GeminiAdapterTests(unittest.TestCase):
