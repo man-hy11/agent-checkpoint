@@ -6,12 +6,13 @@ Create a concise checkpoint entry with these exact headings, excluding
 credentials and diff content:
 
 ```markdown
-## 1. Goal / Plan
 ## 2. Progress
-## 3. Current Focus
-## 4. Next Actions / TODO
 ## 5. Decisions / Constraints / Notes
 ```
+
+When a work package's `CURRENT.md` exists, do not restate its Goal/Plan or
+Current Focus in the checkpoint entry — `CURRENT.md` is that information's
+only source. Record only what changed this session.
 
 For a new work item, choose the matching workflow type and run:
 
