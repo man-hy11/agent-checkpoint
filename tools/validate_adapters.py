@@ -12,6 +12,9 @@ import tomllib
 from typing import Sequence
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_CORE_SKILLS_DIR = _PROJECT_ROOT / "core" / "skills"
+
 _LAUNCHER_PATH = Path("bin") / "agent-checkpoint"
 _CORE_MODULES = (
     "__init__.py",
@@ -137,7 +140,9 @@ def _extract_skill_names(bundle: Path) -> list[str] | None:
 
 
 def _validate_skill_manifest(bundle: Path) -> list[str]:
-    """Validate that the skills/ directory matches SKILL_NAMES exactly."""
+    """Validate that the skills/ directory matches SKILL_NAMES exactly, and
+    that each skill's body has not drifted from its core/skills/ source of
+    truth (when that source tree is available alongside this checkout)."""
     skill_names = _extract_skill_names(bundle)
     if skill_names is None:
         return ["could not extract SKILL_NAMES from bundled skill_install.py"]
@@ -159,6 +164,9 @@ def _validate_skill_manifest(bundle: Path) -> list[str]:
             errors.append(error)
         else:
             errors.extend(_validate_skill(bundle / skill_path, str(skill_path)))
+            errors.extend(
+                _validate_skill_body_parity(bundle / skill_path, name, str(skill_path))
+            )
 
     # Check for extra (undeclared) skills
     declared = set(skill_names)
@@ -168,6 +176,46 @@ def _validate_skill_manifest(bundle: Path) -> list[str]:
                 errors.append(f"undeclared skill directory: skills/{entry.name}")
 
     return errors
+
+
+def _validate_skill_body_parity(
+    bundle_skill_path: Path, skill_name: str, relative: str
+) -> list[str]:
+    """Compare a bundled skill's body against core/skills/<name>/SKILL.md.
+
+    Opportunistic: silently skipped when core/skills/ is not available
+    alongside this checkout (e.g. validating a distributed bundle with no
+    sibling source tree), so a standalone ``validate_adapters.py dist/codex``
+    keeps working. Always runs when validating bundles built from this
+    repository, where core/skills/ is guaranteed present.
+    """
+    core_skill_path = _CORE_SKILLS_DIR / skill_name / "SKILL.md"
+    if not core_skill_path.is_file():
+        return []
+    try:
+        bundle_body = _skill_body(bundle_skill_path)
+        core_body = _skill_body(core_skill_path)
+    except (OSError, UnicodeError):
+        return [f"unreadable native skill: {relative}"]
+    if bundle_body != core_body:
+        return [f"skill body drifted from core/skills/ source: {relative}"]
+    return []
+
+
+def _skill_body(path: Path) -> str:
+    """Return everything after the frontmatter's closing '---' line.
+
+    Unlike ``_parse_frontmatter``, this does not validate the frontmatter's
+    grammar — it only strips it — because ``core/skills/`` sources author
+    their ``description:`` as plain unquoted YAML (free of the quoting
+    ``_frontmatter_string`` requires for bundled adapter output), and this
+    helper must read both forms to compare bodies across the two.
+    """
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        return text
+    _, separator, remainder = text[4:].partition("\n---\n")
+    return remainder if separator else text
 
 
 def _validate_claude(bundle: Path) -> list[str]:

@@ -788,3 +788,47 @@ class TwelveSkillCoverageTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("symlink", result.stderr.lower())
+
+
+def _skill_body(path: Path) -> str:
+    """Return everything after the frontmatter's closing '---' line."""
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        return text
+    _, separator, remainder = text[4:].partition("\n---\n")
+    return remainder if separator else text
+
+
+class SkillContentParityTests(unittest.TestCase):
+    """Catches an adapter skill drifting from its core/skills/ source of truth (R5-I11)."""
+
+    def test_all_twelve_skills_match_core_across_text_adapters(self):
+        """Catches the codex/opencode router regressing to stale pre-R5 content."""
+        for name in SKILL_NAMES:
+            core_body = _skill_body(PROJECT_ROOT / "core" / "skills" / name / "SKILL.md")
+            for adapter in ("codex", "opencode", "claude-code"):
+                adapter_path = (
+                    PROJECT_ROOT / "adapters" / adapter / "skills" / name / "SKILL.md"
+                )
+                self.assertEqual(
+                    _skill_body(adapter_path),
+                    core_body,
+                    f"{adapter}/skills/{name}/SKILL.md body drifted from core/skills/{name}/SKILL.md",
+                )
+
+    def test_validate_adapter_rejects_skill_body_drifted_from_core(self):
+        """Catches the exact class of drift R5-R1 found: an adapter skill silently
+        diverging from its core/skills/ source with no validation failure."""
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("codex", Path(directory))
+            stale_skill = bundle / "skills" / "checkpoint" / "SKILL.md"
+            stale_skill.write_text(
+                "---\nname: checkpoint\ndescription: stale pre-R5 content\n---\n\nStale body.\n",
+                encoding="utf-8",
+            )
+
+            result = run_tool("tools/validate_adapters.py", str(bundle))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("drifted", result.stderr.lower())
+            self.assertIn("checkpoint", result.stderr)

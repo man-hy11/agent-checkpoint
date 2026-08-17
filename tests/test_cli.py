@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from agent_checkpoint.work_state import parse_state
 from tools import install as install_tool
 from tests.helpers import CORE_ROOT, PROJECT_ROOT, VALID_BODY, run_cli
 
@@ -1305,6 +1307,113 @@ class WorkCliTests(unittest.TestCase):
         payload = json.loads(raw)
         keys = list(payload.keys())
         self.assertEqual(keys, sorted(keys))
+
+
+class ReviseAtomicWriteTests(unittest.TestCase):
+    """Catches work revise bypassing the lock-guarded atomic-write path (R5-I11)."""
+
+    @staticmethod
+    def _write_evidence(directory):
+        evidence_file = Path(directory) / "ev.md"
+        evidence_file.write_text(
+            "## Unit: test-work\n## Attempt: 1\n### command\nreplan\n"
+            "### pass_fail\npassed\n### observed_output\nOK\n",
+            encoding="utf-8",
+        )
+        return evidence_file
+
+    def test_revise_refuses_symlinked_current_md(self):
+        """Catches revise following a symlinked CURRENT.md instead of refusing it."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = _make_work_package(project_root)
+            real_target = project_root / "real-current.md"
+            current_path = pkg / "CURRENT.md"
+            original = current_path.read_text(encoding="utf-8")
+            real_target.write_text(original, encoding="utf-8")
+            current_path.unlink()
+            try:
+                current_path.symlink_to(real_target)
+            except OSError as error:
+                self.skipTest(f"symlinks unavailable: {error}")
+            evidence = self._write_evidence(directory)
+
+            result = run_cli(
+                "work", "revise",
+                "--plan-revision", "2",
+                "--evidence-file", str(evidence),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(real_target.read_text(encoding="utf-8"), original)
+
+    def test_revise_leaves_current_md_unchanged_on_replace_failure(self):
+        """Catches a crash mid-write corrupting or truncating CURRENT.md."""
+        from agent_checkpoint import storage as storage_module
+        from agent_checkpoint.work_store import revise_plan
+
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = _make_work_package(project_root)
+            current_path = pkg / "CURRENT.md"
+            original = current_path.read_text(encoding="utf-8")
+
+            with mock.patch.object(
+                storage_module.os, "replace", side_effect=OSError("simulated crash")
+            ):
+                with self.assertRaises(OSError):
+                    revise_plan(project_root, current_path, plan_revision=2)
+
+            self.assertEqual(current_path.read_text(encoding="utf-8"), original)
+            leaked = [
+                p for p in current_path.parent.iterdir()
+                if p.name.startswith(".") and p.name != ".agent-checkpoint.lock"
+            ]
+            self.assertEqual(leaked, [], f"leaked temp files: {leaked}")
+
+    def test_revise_still_increments_plan_revision_end_to_end(self):
+        """Regression: the atomic rewrite still performs the same logical update."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = _make_work_package(project_root)
+            evidence = self._write_evidence(directory)
+
+            result = run_cli(
+                "work", "revise",
+                "--plan-revision", "2",
+                "--evidence-file", str(evidence),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('"plan_revision": 2', (pkg / "CURRENT.md").read_text(encoding="utf-8"))
+
+    def test_concurrent_revise_serializes_without_corruption(self):
+        """Catches two concurrent revise calls racing past the lock and tearing CURRENT.md."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = _make_work_package(project_root)
+            evidence = self._write_evidence(directory)
+
+            def run_once():
+                return run_cli(
+                    "work", "revise",
+                    "--plan-revision", "2",
+                    "--evidence-file", str(evidence),
+                    "--root", str(project_root),
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first, second = [
+                    future.result()
+                    for future in [pool.submit(run_once), pool.submit(run_once)]
+                ]
+
+            codes = sorted([first.returncode, second.returncode])
+            self.assertEqual(codes[0], 0, "exactly one revise should succeed")
+            self.assertNotEqual(codes[1], 0, "the losing revise should be refused, not corrupt")
+            parse_state((pkg / "CURRENT.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

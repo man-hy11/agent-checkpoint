@@ -7,8 +7,6 @@ import re
 import sys
 from typing import Sequence
 
-from dataclasses import replace as _dataclass_replace
-
 from .config import ConfigError, ensure_gitignore, load_config
 from .diagnostics import build_doctor, build_handoff, build_resume, build_status, build_work_status
 from .progress import contains_diff_content, validate_entry
@@ -23,8 +21,9 @@ from .skill_install import agent_skill_roots, global_skill_destination, install_
 from .work_evidence import validate_evidence
 from .work_manifest import ManifestError, load_manifest
 from .work_migration import apply_migration, plan_migration
-from .work_state import StateError, parse_state, render_state
+from .work_state import StateError, parse_state
 from .work_store import claim as _work_claim
+from .work_store import revise_plan as _work_revise
 from .workflows import discard_workflow, initialize_workflow, workflow_types
 
 
@@ -351,19 +350,11 @@ def _dispatch_work(arguments: argparse.Namespace) -> int:
     if work_command == "revise":
         evidence_text = Path(arguments.evidence_file).read_text(encoding="utf-8")
         _reject_secret_text(evidence_text)
-        text = current_path.read_text(encoding="utf-8")
-        state = parse_state(text)
-        if any(unit.state == "running" for unit in state.units):
-            raise ValidationError("work revise refused: a unit is currently running")
-        expected = state.plan_revision + 1
-        if arguments.plan_revision != expected:
-            raise ValidationError(
-                f"work revise refused: expected plan_revision {expected},"
-                f" got {arguments.plan_revision}"
-            )
-        updated = _dataclass_replace(state, plan_revision=arguments.plan_revision)
-        rendered = render_state(text, updated)
-        current_path.write_text(rendered, encoding="utf-8")
+        _work_revise(
+            root,
+            current_path,
+            plan_revision=arguments.plan_revision,
+        )
         print(f"Plan revision updated to {arguments.plan_revision}.", file=sys.stderr)
         return EXIT_SUCCESS
 

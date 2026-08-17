@@ -1,82 +1,45 @@
 ---
 name: checkpoint
-description: Use to manually save resumable project progress, read resume context, create a handoff, or diagnose the checkpoint CLI.
+description: "Routes to the correct phase skill by running work status \u2014 determines which of the twelve checkpoint skills acts next and dispatches accordingly."
 ---
 
-# Checkpoint
+# Checkpoint — Router
 
-This adapter is manual-only: use the OpenCode checkpoint, resume, and handoff
-commands when needed. It does not configure lifecycle hooks or automatic
-context injection.
-
-## Checkpoint
-
-For a new work item, choose the matching bundled workflow type and run
-`agent-checkpoint workflow --type TYPE --id current`. Read and fill
-`.agent-checkpoint/work/current/CURRENT.md` and its `PLAN_*.md` prompt before
-writing the checkpoint. Keep `PROGRESS.md` concise: point to the package,
-Current Step/Gate, and `PROGRESS.md -> CURRENT.md -> CONTINUE_PROMPT.md`.
-If no type was specified, ask the user to choose one; never infer it.
-Before filling planning files, ask concise questions for missing goal, scope,
-success criteria, constraints, or affected area. Do not invent details or
-advance the tracker until answered.
-
-Create a concise entry with these exact headings, excluding credentials and
-diff content:
-
-```markdown
-## 1. Goal / Plan
-## 2. Progress
-## 3. Current Focus
-## 4. Next Actions / TODO
-## 5. Decisions / Constraints / Notes
-```
-
-Pass the completed entry on standard input to the installed CLI:
+Determine which skill acts next by reading the current work state:
 
 ```bash
-agent-checkpoint write --entry -
+agent-checkpoint work status --root . --json
 ```
 
-Add concrete test/build results with repeated `--verification TEXT` options.
+The `next_skill` field names the skill to invoke. Invoke it now. Do not perform any other action in this skill.
 
-Use `--root PATH` when the project root is not the current directory. Report
-the CLI result briefly and do not say the checkpoint was saved when it fails.
+## Routing table (summary)
 
-## Resume
+See `_checkpoint-shared/chain-v1.md` for the full ordered routing table. Representative cases:
 
-Render the current checkpoint context manually:
+| Condition | next_skill |
+|---|---|
+| No state block | checkpoint-select-workflow |
+| `brief_confirmed` false | checkpoint-brainstorm |
+| Units empty or current superseded | checkpoint-plan |
+| All units completed | checkpoint-plan |
+| Current unit blocked | checkpoint-recover |
+| Current unit failed, no fingerprint | checkpoint-diagnose |
+| Current unit failed, fingerprint set | checkpoint-recover |
+| Current unit pending or ready | checkpoint-claim |
+| Current unit running, kind gate | checkpoint-verify-gate |
+| Current unit running, kind step | checkpoint-execute |
+
+## Initializing a new work package
+
+If no work package exists yet, run:
 
 ```bash
-agent-checkpoint resume
+agent-checkpoint workflow --type TYPE --id current
 ```
 
-Use `--root PATH` or `--max-chars NUMBER` when appropriate.
-Follow the rendered `Language:` instruction.
+Then re-run `work status` to confirm `next_skill` and proceed.
 
-## Handoff
+## This skill never acts directly
 
-Create a manual handoff summary for the next agent:
-
-```bash
-agent-checkpoint handoff
-```
-
-Use `--root PATH` or `--max-chars NUMBER` when appropriate.
-Preserve the rendered verification section separately from recent decisions,
-and follow the rendered `Language:` instruction.
-
-## Doctor
-
-Check the installed CLI when checkpoint behavior is unavailable or unexpected:
-
-```bash
-agent-checkpoint doctor --adapter opencode
-```
-
-If `agent-checkpoint` is not found, install it from this project's source
-directory, then ensure the prefix's `bin` directory is on `PATH`:
-
-```bash
-python3 tools/install.py --prefix "$HOME/.local"
-```
+It reads state and dispatches. All execution, verification, evidence recording, and recovery are performed by the named skill, not here.
