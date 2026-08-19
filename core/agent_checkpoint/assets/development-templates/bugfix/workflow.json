@@ -33,9 +33,10 @@
     ]
   },
   "default_units": [
-    "B1 Reproduction / Investigation",
-    "B2 Root cause fix",
-    "B3 Regression coverage",
+    "B1 Reproduce & Capture Evidence",
+    "B2 Root Cause Analysis",
+    "B3 Minimal Fix",
+    "B4 Regression & Related Behavior",
     "Bugfix Gate"
   ]
 }

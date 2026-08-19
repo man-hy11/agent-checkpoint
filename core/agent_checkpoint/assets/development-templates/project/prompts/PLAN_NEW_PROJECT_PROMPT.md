@@ -33,12 +33,33 @@ Rules:
 
 1. dependency-order the Phases;
 2. split each Phase into granular independently verifiable Steps;
-3. each Step needs detailed Tasks, tests, evidence, failure cases, acceptance criteria, and out-of-scope boundaries;
-4. `PHASE.md` is authoritative;
-5. one invocation = one Step or one Phase Gate;
-6. PASS -> advance Current Target -> report -> STOP;
-7. FAIL -> do not advance -> report -> STOP;
-8. perform a final dependency/consistency audit;
-9. validate Step IDs, file names, headers, preconditions, Gates, and source-of-truth documents.
+3. every Step must follow `templates/STEP_PROMPT_TEMPLATE.md` in full — do not
+   emit a thin summary. Each Step needs:
+   - Required Reading and explicit In/Out of Scope;
+   - Tasks broken out per `shared/TASK_DECOMPOSITION_STANDARD.md` (Objective,
+     Inspect Before Editing with concrete paths, Implementation Contract,
+     numbered Detailed Implementation Steps, Failure/Recovery Cases with
+     error code/message/retryability/cleanup/final-state, Task-Level Test
+     Cases, Evidence Required, Task Done Condition);
+   - a Task Execution Tracking table;
+   - the relevant sections of `shared/CROSS_CUTTING_CONTRACTS.md` (Data/
+     Persistence, API Contract, Worker/Background Contract, Configuration,
+     Error Handling Matrix, Logging/Observability) — filled in, not left as
+     placeholders, for every section that applies to this Step's behavior;
+   - the Implementation Review Checklist from `shared/STEP_EXECUTION_PROTOCOL.md`;
+4. every Phase Gate must follow `templates/PHASE_GATE_TEMPLATE.md` in full,
+   per `shared/GATE_STANDARD.md`;
+5. `PHASE.md` is authoritative;
+6. one invocation = one Step or one Phase Gate;
+7. PASS -> advance Current Target -> report -> STOP;
+8. FAIL -> do not advance -> report -> STOP;
+9. perform a final dependency/consistency audit;
+10. validate Step IDs, file names, headers, preconditions, Gates, and source-of-truth documents.
+
+A Step that is thin because the underlying work is genuinely small (few
+Tasks, no persistence/API/worker surface) is correct — omit inapplicable
+Cross-Cutting Contracts sections rather than padding them. A Step that omits
+detail because it involves real persistence, API, worker, or failure-prone
+behavior is not acceptable.
 
 Do not start application implementation.

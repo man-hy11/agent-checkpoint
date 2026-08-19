@@ -35,10 +35,36 @@ Rules:
 3. Include regression surfaces in every implementation Step.
 4. Preserve existing architecture unless the requested feature genuinely requires a deliberate architecture change.
 5. Avoid unrelated refactors.
-6. One invocation = one Feature Step or Feature Gate.
-7. PASS -> advance `CURRENT.md` -> completion report -> STOP.
-8. FAIL -> do not advance -> report remediation -> STOP.
-9. The Feature Gate must verify both the new behavior and important existing behavior.
-10. Do not begin feature implementation while creating the plan.
+6. every Step must follow `templates/FEATURE_STEP_TEMPLATE.md` in full — do not
+   emit a thin summary. Each Step needs:
+   - Required Reading (this Feature's `CHANGE.md`/`IMPACT.md` plus relevant
+     repo docs) and explicit In/Out of Scope;
+   - Tasks broken out per `shared/TASK_DECOMPOSITION_STANDARD.md` (Objective,
+     Inspect Before Editing with concrete existing paths from `IMPACT.md`,
+     Implementation Contract, numbered Detailed Implementation Steps,
+     Failure/Recovery Cases with error code/message/retryability/cleanup/
+     final-state, Task-Level Test Cases, Evidence Required, Task Done
+     Condition);
+   - a Task Execution Tracking table;
+   - the relevant sections of `shared/CROSS_CUTTING_CONTRACTS.md` (Architecture
+     Fit, Expected Files/Modules, Data/Persistence, API Contract,
+     Worker/Background Contract, Configuration, Error Handling Matrix,
+     Logging/Observability) — filled in, not left as placeholders, for every
+     section that applies to this Step's actual behavior;
+   - the Implementation Review Checklist from `shared/STEP_EXECUTION_PROTOCOL.md`,
+     feature-adapted;
+7. every Feature Gate must follow `templates/FEATURE_GATE_TEMPLATE.md` in
+   full, per `shared/GATE_STANDARD.md`;
+8. `CURRENT.md` is authoritative;
+9. one invocation = one Feature Step or Feature Gate;
+10. PASS -> advance `CURRENT.md` -> completion report -> STOP.
+11. FAIL -> do not advance -> report remediation -> STOP.
+12. The Feature Gate must verify both the new behavior and important existing behavior.
+13. Do not begin feature implementation while creating the plan.
 
-If the feature is genuinely tiny, use fewer Steps rather than artificially creating many.
+A Step that is thin because the underlying change is genuinely small (few
+Tasks, no persistence/API/worker surface) is correct — omit inapplicable
+Cross-Cutting Contracts sections rather than padding them, and use fewer
+Steps rather than artificially creating many. A Step that omits detail
+because it involves real persistence, API, worker, or failure-prone
+behavior is not acceptable.

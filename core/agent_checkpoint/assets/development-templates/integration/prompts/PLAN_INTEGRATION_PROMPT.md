@@ -52,4 +52,41 @@ Execution rules:
 3. FAIL -> do not advance -> remediation report -> STOP;
 4. do not perform unrelated refactors or product changes;
 5. include evidence and regression requirements in every Step;
-6. do not start implementation while creating the plan.
+6. do not start implementation while creating the plan;
+7. every Step must follow `templates/STEP_TEMPLATE.md` in full — do not emit
+   a thin summary. Each Step needs:
+   - Required Reading / Existing System Inspection, including
+     `PROVIDER_CONTRACT.md`, and explicit In/Out of Scope;
+   - Tasks broken out per `shared/TASK_DECOMPOSITION_STANDARD.md`
+     (Objective, Inspect Before Editing with concrete adapter paths,
+     Implementation Contract using normalized error categories, numbered
+     Detailed Implementation Steps, a Failure/Recovery table covering
+     provider-specific failure modes — auth expiry, rate limit, timeout,
+     outage, malformed response, version mismatch — each with error
+     code/message/retryability/cleanup/final-state, Task-Level Test Cases,
+     Evidence Required, Task Done Condition);
+   - an explicit split between default fake/sandbox testing and any opt-in
+     live-provider testing;
+   - a Task Execution Tracking table;
+   - the relevant sections of `shared/CROSS_CUTTING_CONTRACTS.md` adapted
+     for integration work (Architecture Fit on the adapter boundary,
+     Provider Contract in place of a generic API Contract, Configuration/
+     Environment covering auth/token storage and least-privilege scopes,
+     Error Handling Matrix, Logging/Observability with an explicit
+     never-log-secrets reminder) — filled in, not left as placeholders, for
+     every section that applies;
+   - the Implementation Review Checklist from
+     `shared/STEP_EXECUTION_PROTOCOL.md` plus the integration-specific
+     items in `templates/STEP_TEMPLATE.md`;
+8. every External Integration Gate must follow `templates/GATE_TEMPLATE.md`
+   in full, per `shared/GATE_STANDARD.md` — Gate PASS requires provider
+   contract compliance to be verified, failure/retry/idempotency behavior to
+   be actually exercised (not only present in source), no leaked secrets,
+   and an end-to-end pass through the real or realistically sandboxed
+   provider, not merely a fully in-process fake.
+
+A Step that is thin because the underlying integration surface is genuinely
+small (few operations, no side effects) is correct — omit inapplicable
+Cross-Cutting Contracts sections rather than padding them. A Step that omits
+detail because it involves real auth, side-effecting calls, retries, or
+failure-prone provider behavior is not acceptable.
