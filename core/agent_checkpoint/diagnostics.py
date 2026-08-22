@@ -7,6 +7,7 @@ from typing import Iterable
 
 from .config import ProjectConfig, resolve_checkpoint_paths
 from .git_state import GitState, collect_git_state
+from .handoff import list_open_handoff_reports
 from .models import ProgressDocument
 from .progress import contains_diff_content, contains_line_boundary, parse_progress
 from .secrets import find_secret_kind
@@ -78,6 +79,10 @@ def build_handoff(
     changed_files = "\n".join(
         f"- {_safe_filename(name)}" for name in state.changed_files
     ) or "- None"
+    open_reports = "\n".join(
+        f"- {_safe_filename(str(path.relative_to(root)))}"
+        for path in list_open_handoff_reports(root)
+    ) or "- None"
     lines = [
         "# Checkpoint Handoff",
         f"Language: {_safe_metadata(config.language) or 'unspecified'}",
@@ -109,6 +114,8 @@ def build_handoff(
             "Recent Decisions:",
             _section(entry_body, "## 5. Decisions / Constraints / Notes")
             or _availability(error),
+            "Open Handoff Reports:",
+            open_reports,
             "",
         )
     )
@@ -156,12 +163,28 @@ def build_doctor(project_root: Path, config: ProjectConfig, adapter: str) -> dic
     }
 
 
-def build_work_status(project_root: Path, config: ProjectConfig) -> dict | None:
-    """Return the work-status dict for the active work package, or None if absent."""
+def build_work_status(
+    project_root: Path,
+    config: ProjectConfig,
+    work_id_filter: str | None = None,
+    *,
+    strict_ambiguity: bool = False,
+) -> dict | None:
+    """Return the work-status dict for the active work package, or None if absent.
+
+    ``work_id_filter``, when given, selects that package by name and raises
+    ``StateError`` if no package with that name exists. ``strict_ambiguity``
+    controls behavior when it is omitted and more than one candidate package
+    exists: if True, raises ``StateError`` naming every candidate instead of
+    silently picking one (used by the ``work status`` CLI command); if
+    False (default — used by ``build_resume``/``build_handoff``, which have
+    no ``--id`` of their own to disambiguate with), keeps the pre-existing
+    behavior of using the alphabetically-first candidate.
+    """
     work_root = project_root / ".agent-checkpoint" / "work"
     if not work_root.is_dir():
         return None
-    # Find the first non-staging directory (alphabetically) that contains a parsable CURRENT.md
+    # Find every non-staging directory that contains a parsable CURRENT.md.
     try:
         candidates = sorted(
             p for p in work_root.iterdir()
@@ -171,6 +194,16 @@ def build_work_status(project_root: Path, config: ProjectConfig) -> dict | None:
         return None
     if not candidates:
         return None
+
+    if work_id_filter is not None:
+        candidates = [p for p in candidates if p.name == work_id_filter]
+        if not candidates:
+            raise StateError(f"no work package found with id: {work_id_filter}")
+    elif strict_ambiguity and len(candidates) > 1:
+        names = ", ".join(p.name for p in candidates)
+        raise StateError(
+            f"multiple work packages found ({names}); pass --id to select one"
+        )
 
     state = None
     work_id = None

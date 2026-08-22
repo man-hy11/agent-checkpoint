@@ -21,8 +21,10 @@ agent-checkpoint workflow --type TYPE --id current
 ```
 
 Fill `.agent-checkpoint/work/current/CURRENT.md` and its planning prompt first.
-Keep `PROGRESS.md` as a concise pointer to the package, Current Step/Gate, and
-the `PROGRESS.md -> CURRENT.md -> CONTINUE_PROMPT.md` read order.
+Keep `.agent-checkpoint/work/current/PROGRESS.md` as a concise pointer to the
+package, Current Step/Gate, and the root `CONTINUE_PROMPT.md -> CURRENT.md ->
+CONTINUE_PROMPT.md` read order (root `CONTINUE_PROMPT.md` names the active
+package; the rest live under `.agent-checkpoint/work/current/`).
 If the user has not specified a type, ask them to choose one; do not infer it.
 Before filling the planning files, ask concise questions for any missing goal,
 scope, success criterion, constraint, or affected area. Do not invent details

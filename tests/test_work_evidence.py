@@ -35,6 +35,14 @@ class ParseTests(unittest.TestCase):
         self.assertIn("command", document.sections)
         self.assertIn("OK", document.sections["observed_output"])
 
+    def test_parse_reads_multi_word_unit_name(self):
+        """Catches the unit regex truncating at the first space (e.g. 'Feature Gate')."""
+        text = ADEQUATE.replace("## Unit: P3", "## Unit: Feature Gate")
+
+        document = parse_evidence(text)
+
+        self.assertEqual(document.unit, "Feature Gate")
+
 
 class ValidateTests(unittest.TestCase):
     def test_adequate_evidence_returns_no_unmet_requirements(self):
@@ -65,6 +73,16 @@ class ValidateTests(unittest.TestCase):
         unmet = validate_evidence(ADEQUATE, unit_id="P4", required=REQUIRED)
 
         self.assertIn("unit_attribution", unmet)
+
+    def test_multi_word_unit_attribution_matches(self):
+        """Catches the unit regex truncating 'Feature Gate' to 'Feature' and
+        falsely rejecting evidence for gate units whose plan-assigned name
+        contains a space."""
+        text = ADEQUATE.replace("## Unit: P3", "## Unit: Feature Gate")
+
+        unmet = validate_evidence(text, unit_id="Feature Gate", required=REQUIRED)
+
+        self.assertNotIn("unit_attribution", unmet)
 
     def test_credential_shaped_content_is_reported(self):
         """Catches a token pasted into evidence being persisted."""

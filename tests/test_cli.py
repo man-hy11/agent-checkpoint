@@ -8,7 +8,9 @@ import tempfile
 import unittest
 from unittest import mock
 
+from agent_checkpoint.config import ConfigError, read_active_work_id, write_active_work_id
 from agent_checkpoint.work_state import parse_state
+from agent_checkpoint.workflows import write_root_continue_prompt
 from tests.helpers import CORE_ROOT, VALID_BODY, run_cli
 
 
@@ -28,6 +30,24 @@ ALL_COMMANDS = (
     "workflow",
     "skill-install",
 )
+
+
+def _activate_work_package(project_root: Path, work_id: str = "current") -> Path:
+    """Create a work package directory and point the active pointer at it.
+
+    R3 made ``write`` resolve its target through the active pointer, so tests
+    that exercise the write path must first establish an active work package.
+    """
+    package = project_root / ".agent-checkpoint" / "work" / work_id
+    package.mkdir(parents=True)
+    (project_root / ".agent-checkpoint" / "active").write_text(
+        work_id + "\n", encoding="utf-8"
+    )
+    return package
+
+
+def _scoped_progress(project_root: Path, work_id: str = "current") -> Path:
+    return project_root / ".agent-checkpoint" / "work" / work_id / "PROGRESS.md"
 
 
 class CliTests(unittest.TestCase):
@@ -59,9 +79,16 @@ class CliTests(unittest.TestCase):
             self.assertTrue(
                 (project_root / ".agent-checkpoint/work/current/CURRENT.md").is_file()
             )
-            progress = (project_root / "PROGRESS.md").read_text(encoding="utf-8")
+            self.assertEqual(
+                (project_root / ".agent-checkpoint/active").read_text(encoding="utf-8"),
+                "current\n",
+            )
+            progress = (
+                project_root / ".agent-checkpoint/work/current/PROGRESS.md"
+            ).read_text(encoding="utf-8")
             self.assertIn("Workflow type: feature", progress)
             self.assertIn(".agent-checkpoint/work/current/CURRENT.md", progress)
+            self.assertFalse((project_root / "PROGRESS.md").exists())
 
     def test_workflow_without_type_lists_required_choice(self):
         """Catches a first workflow invocation silently guessing its template type."""
@@ -114,6 +141,7 @@ class CliTests(unittest.TestCase):
         for command in ("write", "validate", "dry-run"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
                 project_root = Path(directory)
+                _activate_work_package(project_root)
 
                 result = run_cli(
                     command,
@@ -126,13 +154,14 @@ class CliTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("diff-shaped", result.stderr)
-                self.assertFalse((project_root / "PROGRESS.md").exists())
+                self.assertFalse(_scoped_progress(project_root).exists())
 
     def test_write_regular_file_parent_exits_two_without_traceback(self):
         """Catches handled storage path errors escaping as NameError tracebacks."""
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory)
-            (project_root / "state").write_text("not a directory\n", encoding="utf-8")
+            package = _activate_work_package(project_root)
+            (package / "state").write_text("not a directory\n", encoding="utf-8")
             (project_root / ".agent-checkpoint.toml").write_text(
                 'progress_path = "state/PROGRESS.md"\n',
                 encoding="utf-8",
@@ -152,7 +181,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("not a directory", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
             self.assertNotIn("NameError", result.stderr)
-            self.assertFalse((project_root / "PROGRESS.md").exists())
+            self.assertFalse((package / "state" / "PROGRESS.md").exists())
 
     def test_write_rejects_indented_git_metadata_only_blocks(self):
         """Catches CLI writes persisting metadata-only Git diff blocks."""
@@ -178,6 +207,7 @@ class CliTests(unittest.TestCase):
         for name, patch in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 project_root = Path(directory)
+                _activate_work_package(project_root)
 
                 result = run_cli(
                     "write",
@@ -190,7 +220,7 @@ class CliTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("diff-shaped", result.stderr)
-                self.assertFalse((project_root / "PROGRESS.md").exists())
+                self.assertFalse(_scoped_progress(project_root).exists())
 
     def test_write_rejects_indented_git_headers_with_spaces(self):
         """Catches CLI writes persisting real Git headers with spaces."""
@@ -216,6 +246,7 @@ class CliTests(unittest.TestCase):
         for name, patch in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 project_root = Path(directory)
+                _activate_work_package(project_root)
 
                 result = run_cli(
                     "write",
@@ -228,7 +259,7 @@ class CliTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("diff-shaped", result.stderr)
-                self.assertFalse((project_root / "PROGRESS.md").exists())
+                self.assertFalse(_scoped_progress(project_root).exists())
 
     def test_write_allows_indented_git_metadata_prose(self):
         """Catches CLI prose mentioning Git metadata being rejected as a diff."""
@@ -249,6 +280,7 @@ class CliTests(unittest.TestCase):
         for name, prose in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 project_root = Path(directory)
+                _activate_work_package(project_root)
 
                 result = run_cli(
                     "write",
@@ -260,13 +292,14 @@ class CliTests(unittest.TestCase):
                 )
 
                 self.assertEqual(result.returncode, 0, result.stderr)
-                progress = (project_root / "PROGRESS.md").read_text(encoding="utf-8")
+                progress = _scoped_progress(project_root).read_text(encoding="utf-8")
                 self.assertIn(prose, progress)
 
     def test_write_validate_resume_handoff_status_and_doctor_streams(self):
         """Catches command routing, flags, or stdout/stderr contracts drifting."""
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory)
+            _activate_work_package(project_root)
             entry_path = project_root / "entry.md"
             entry_path.write_text(VALID_BODY, encoding="utf-8")
 
@@ -305,7 +338,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("valid", validation.stderr.lower())
             self.assertEqual(write.returncode, 0, write.stderr)
             self.assertEqual(write.stdout, "")
-            progress = (project_root / "PROGRESS.md").read_text(encoding="utf-8")
+            progress = _scoped_progress(project_root).read_text(encoding="utf-8")
             self.assertIn("[PINNED]", progress)
             self.assertIn("48 tests passed", progress)
             self.assertEqual(resume.returncode, 0, resume.stderr)
@@ -324,6 +357,44 @@ class CliTests(unittest.TestCase):
             doctor_payload = json.loads(doctor.stdout)
             self.assertEqual(doctor_payload["adapter"], "codex")
             self.assertEqual(doctor_payload["capability"], "manual")
+
+    def test_handoff_resolve_removes_report_end_to_end(self):
+        """Catches the CLI resolve surface failing to reach handoff.py's primitive."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            handoff_dir = project_root / ".agent-checkpoint" / "handoff"
+            handoff_dir.mkdir(parents=True)
+            report_path = handoff_dir / "current-R9-scratch-report.md"
+            report_path.write_text("# Scratch Report\n\nBody.\n", encoding="utf-8")
+
+            resolve = run_cli(
+                "handoff",
+                "resolve",
+                "--root",
+                str(project_root),
+                "--name",
+                "current-R9-scratch-report",
+            )
+
+            self.assertEqual(resolve.returncode, 0, resolve.stderr)
+            self.assertIn("resolved", resolve.stderr.lower())
+            self.assertFalse(report_path.exists())
+
+    def test_handoff_resolve_nonexistent_report_exits_invalid(self):
+        """Catches a bad --name silently succeeding instead of surfacing exit code 2."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+
+            resolve = run_cli(
+                "handoff",
+                "resolve",
+                "--root",
+                str(project_root),
+                "--name",
+                "never-written",
+            )
+
+            self.assertEqual(resolve.returncode, 2, resolve.stderr)
 
     def test_invalid_input_and_config_exit_two_without_json_stdout(self):
         """Catches invalid user/configuration data escaping the code-2 boundary."""
@@ -396,6 +467,7 @@ class CliTests(unittest.TestCase):
         """Catches persisted verification disappearing or being labeled a decision."""
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory)
+            _activate_work_package(project_root)
             existing_verification = "manual smoke test: passed"
             verification = "python -m unittest: 123 passed"
             written = run_cli(
@@ -422,7 +494,7 @@ class CliTests(unittest.TestCase):
             verification_block = handoff.stdout.partition("Verification results:")[2]
             verification_block = verification_block.partition("Current Focus:")[0]
             decisions_block = handoff.stdout.partition("Recent Decisions:")[2]
-            progress = (project_root / "PROGRESS.md").read_text(encoding="utf-8")
+            progress = _scoped_progress(project_root).read_text(encoding="utf-8")
             self.assertEqual(progress.count("## 6. Verification"), 1)
             self.assertIn(existing_verification, verification_block)
             self.assertIn(verification, verification_block)
@@ -434,6 +506,7 @@ class CliTests(unittest.TestCase):
         for separator in ("\n", "\r", "\x0b", "\x0c", "\x85", "\u2028", "\u2029"):
             with self.subTest(separator=repr(separator)), tempfile.TemporaryDirectory() as directory:
                 project_root = Path(directory)
+                _activate_work_package(project_root)
                 injected = f"tests passed{separator}## 6. Verification - hidden result"
 
                 result = run_cli(
@@ -449,7 +522,7 @@ class CliTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("single line", result.stderr)
-                self.assertFalse((project_root / "PROGRESS.md").exists())
+                self.assertFalse(_scoped_progress(project_root).exists())
 
     def test_config_filesystem_failure_exits_five(self):
         """Catches a wrapped configuration read failure being labeled invalid input."""
@@ -502,6 +575,7 @@ class CliTests(unittest.TestCase):
             candidate = "gh" + "p_" + ("r" * 24)
             project_root = Path(directory) / candidate
             project_root.mkdir()
+            _activate_work_package(project_root)
 
             result = run_cli(
                 "write",
@@ -515,17 +589,18 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertNotIn(candidate, result.stderr)
-            self.assertTrue((project_root / "PROGRESS.md").is_file())
+            self.assertTrue(_scoped_progress(project_root).is_file())
 
     @unittest.skipUnless(os.name == "posix", "POSIX flock behavior")
     def test_lock_timeout_exits_four_without_writing(self):
         """Catches lock contention being flattened into invalid input or I/O."""
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory)
+            package = _activate_work_package(project_root)
             (project_root / ".agent-checkpoint.toml").write_text(
                 "lock_timeout_seconds = 0\n", encoding="utf-8"
             )
-            lock_path = project_root / ".agent-checkpoint.lock"
+            lock_path = package / ".agent-checkpoint.lock"
             with lock_path.open("a+b") as lock_file:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 result = run_cli(
@@ -540,7 +615,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 4)
             self.assertEqual(result.stdout, "")
             self.assertIn("lock", result.stderr.lower())
-            self.assertFalse((project_root / "PROGRESS.md").exists())
+            self.assertFalse(_scoped_progress(project_root).exists())
 
     def test_entry_read_failure_exits_five(self):
         """Catches filesystem failures being mislabeled as validation failures."""
@@ -618,13 +693,15 @@ MINIMAL_EVIDENCE = (
 )
 
 
-def _make_work_package(project_root: Path, state_json: str | None = None) -> Path:
-    pkg = project_root / ".agent-checkpoint" / "work" / "test-work"
+def _make_work_package(
+    project_root: Path, state_json: str | None = None, work_id: str = "test-work"
+) -> Path:
+    pkg = project_root / ".agent-checkpoint" / "work" / work_id
     pkg.mkdir(parents=True)
     current_text = (
         "# CURRENT.md\n\n"
         "<!-- agent-checkpoint:state v1 -->\n"
-        + (state_json or MINIMAL_STATE)
+        + (state_json or MINIMAL_STATE).replace('"test-work"', f'"{work_id}"')
         + "\n<!-- /agent-checkpoint:state -->\n"
     )
     (pkg / "CURRENT.md").write_text(current_text, encoding="utf-8")
@@ -660,6 +737,78 @@ class WorkCliTests(unittest.TestCase):
         self.assertEqual(payload["next_skill"], "checkpoint-claim")
         self.assertIn("start", payload["allowed_events"])
 
+    def test_work_status_with_id_selects_named_package(self):
+        """Catches --id being ignored and always resolving candidates[0]."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root, work_id="current")
+            _make_work_package(project_root, work_id="fix-next-skill-routing")
+
+            result = run_cli(
+                "work", "status", "--id", "fix-next-skill-routing",
+                "--root", str(project_root), "--json",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["work_id"], "fix-next-skill-routing")
+
+    def test_work_status_without_id_and_multiple_candidates_is_refused(self):
+        """Catches BUG.md Bug 2: silently picking candidates[0] instead of
+        refusing an ambiguous multi-package selection."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root, work_id="current")
+            _make_work_package(project_root, work_id="fix-next-skill-routing")
+
+            result = run_cli("work", "status", "--root", str(project_root), "--json")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("current", result.stderr)
+        self.assertIn("fix-next-skill-routing", result.stderr)
+        self.assertIn("--id", result.stderr)
+
+    def test_work_status_without_id_and_single_candidate_is_unchanged(self):
+        """Regression guard: the common single-package case must keep
+        working with zero --id required."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli("work", "status", "--root", str(project_root), "--json")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["work_id"], "test-work")
+
+    def test_work_status_with_id_naming_nonexistent_package_is_refused(self):
+        """Catches --id silently falling back to another candidate instead
+        of refusing a nonexistent package name."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli(
+                "work", "status", "--id", "does-not-exist",
+                "--root", str(project_root), "--json",
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("does-not-exist", result.stderr)
+
+    def test_work_status_with_malformed_id_is_refused(self):
+        """Catches --id being used as an unvalidated path component."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root)
+
+            result = run_cli(
+                "work", "status", "--id", "../../etc",
+                "--root", str(project_root), "--json",
+            )
+
+        self.assertEqual(result.returncode, 2)
+
     def test_work_status_human_without_json_flag(self):
         """Catches work status --json being required for structured output."""
         with tempfile.TemporaryDirectory() as directory:
@@ -689,6 +838,42 @@ class WorkCliTests(unittest.TestCase):
             current = (pkg / "CURRENT.md").read_text(encoding="utf-8")
             self.assertIn('"running"', current)
 
+    def test_work_start_with_id_selects_named_package_among_multiple(self):
+        """Catches start ignoring --id and operating on candidates[0]."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root, work_id="current")
+            target = _make_work_package(project_root, work_id="fix-next-skill-routing")
+
+            result = run_cli(
+                "work", "start",
+                "--id", "fix-next-skill-routing",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (target / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"running"', current)
+
+    def test_work_start_without_id_and_multiple_candidates_is_refused(self):
+        """Catches start silently guessing candidates[0] among many packages."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root, work_id="current")
+            _make_work_package(project_root, work_id="fix-next-skill-routing")
+
+            result = run_cli(
+                "work", "start",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--id", result.stderr)
+
     def test_work_start_requires_no_evidence_file(self):
         """Catches start demanding an evidence file it should not need."""
         with tempfile.TemporaryDirectory() as directory:
@@ -710,13 +895,27 @@ class WorkCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
 
     def test_work_pass_transitions_running_unit_to_passed(self):
-        """Catches pass not applying the running->passed transition."""
+        """Catches pass not applying the running->passed transition.
+
+        Uses a second, still-pending unit (U2) so this U1 pass is
+        non-terminal and the package is not archived out from under the
+        assertions below — archive-on-terminal-pass is covered separately by
+        ``ArchiveOnCompleteTests``.
+        """
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory)
             running_state = (
                 MINIMAL_STATE
                 .replace('"ready"', '"running"')
                 .replace('"attempt": 0', '"attempt": 1')
+                .replace(
+                    '"units": [{"id": "U1", "group": null, "kind": "step", '
+                    '"state": "running", "attempt": 1}]',
+                    '"units": ['
+                    '{"id": "U1", "group": null, "kind": "step", "state": "running", "attempt": 1}, '
+                    '{"id": "U2", "group": null, "kind": "step", "state": "pending", "attempt": 0}'
+                    ']',
+                )
             )
             pkg = _make_work_package(project_root, running_state)
             evidence_file = Path(directory) / "ev.md"
@@ -735,6 +934,47 @@ class WorkCliTests(unittest.TestCase):
             self.assertIn('"passed"', current)
             evidence = (pkg / "EVIDENCE.md").read_text(encoding="utf-8")
             self.assertIn("## Unit: U1", evidence)
+
+    def test_work_pass_with_id_selects_named_package_among_multiple(self):
+        """Catches pass ignoring --id and operating on candidates[0] (shared
+        resolution path with start/fail/recover/revise).
+
+        Uses a second, still-pending unit (U2) so this U1 pass is
+        non-terminal and the target package is not archived out from under
+        the assertions below.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+                .replace(
+                    '"units": [{"id": "U1", "group": null, "kind": "step", '
+                    '"state": "running", "attempt": 1}]',
+                    '"units": ['
+                    '{"id": "U1", "group": null, "kind": "step", "state": "running", "attempt": 1}, '
+                    '{"id": "U2", "group": null, "kind": "step", "state": "pending", "attempt": 0}'
+                    ']',
+                )
+            )
+            _make_work_package(project_root, work_id="current")
+            target = _make_work_package(project_root, running_state, work_id="fix-next-skill-routing")
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = run_cli(
+                "work", "pass",
+                "--id", "fix-next-skill-routing",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (target / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"passed"', current)
 
     def test_work_fail_requires_evidence_file(self):
         """Catches fail accepting a transition without evidence."""
@@ -857,6 +1097,31 @@ class WorkCliTests(unittest.TestCase):
             self.assertIsNotNone(block)
             payload = json.loads(block.group(1))
             self.assertEqual(payload["plan_revision"], 2)
+
+    def test_work_revise_with_id_selects_named_package_among_multiple(self):
+        """Catches revise ignoring --id and operating on candidates[0]."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            _make_work_package(project_root, work_id="current")
+            target = _make_work_package(project_root, work_id="fix-next-skill-routing")
+            evidence_file = Path(directory) / "ev.md"
+            evidence_file.write_text(
+                "## Unit: fix-next-skill-routing\n## Attempt: 1\n### command\nreplan\n"
+                "### pass_fail\npassed\n### observed_output\nOK\n",
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                "work", "revise",
+                "--id", "fix-next-skill-routing",
+                "--plan-revision", "2",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = (target / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"plan_revision": 2', current)
 
     def test_work_revise_refuses_wrong_revision(self):
         """Catches revise accepting a non-stored-plus-one revision number."""
@@ -1126,6 +1391,173 @@ class ReviseAtomicWriteTests(unittest.TestCase):
             self.assertEqual(codes[0], 0, "exactly one revise should succeed")
             self.assertNotEqual(codes[1], 0, "the losing revise should be refused, not corrupt")
             parse_state((pkg / "CURRENT.md").read_text(encoding="utf-8"))
+
+
+class ArchiveOnCompleteTests(unittest.TestCase):
+    """Catches `work pass` failing to auto-archive a terminally-complete package
+    (F1: WorkState.is_complete() + archive_completed_package)."""
+
+    def _terminal_package(self, project_root, work_id="test-work"):
+        """A single-unit package whose only unit is `running`, so a `pass`
+        on it is terminal per WorkState.is_complete()."""
+        running_state = (
+            MINIMAL_STATE
+            .replace('"ready"', '"running"')
+            .replace('"attempt": 0', '"attempt": 1')
+        )
+        return _make_work_package(project_root, running_state, work_id=work_id)
+
+    def _pass(self, project_root, work_id=None, unit="U1"):
+        args = ["work", "pass", "--unit", unit, "--plan-revision", "1",
+                "--evidence-file", str(project_root / "ev.md"), "--root", str(project_root)]
+        if work_id is not None:
+            args[2:2] = ["--id", work_id]
+        return run_cli(*args)
+
+    def test_terminal_pass_archives_the_package(self):
+        """Catches a terminal pass leaving the package at its old work/<id>/ path."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            self._terminal_package(project_root)
+            (project_root / "ev.md").write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = self._pass(project_root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            old_path = project_root / ".agent-checkpoint" / "work" / "test-work"
+            self.assertFalse(old_path.exists(), "package left at its pre-archive path")
+            archive_dir = project_root / ".agent-checkpoint" / "work" / "archive"
+            matches = list(archive_dir.glob("test-work-*"))
+            self.assertEqual(len(matches), 1, f"expected exactly one archive dir, got {matches}")
+            current = (matches[0] / "CURRENT.md").read_text(encoding="utf-8")
+            self.assertIn('"passed"', current)
+            evidence = (matches[0] / "EVIDENCE.md").read_text(encoding="utf-8")
+            self.assertIn("## Unit: U1", evidence)
+
+    def test_non_terminal_pass_does_not_archive(self):
+        """Catches a non-terminal pass (other units still pending) being archived anyway."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            running_state = (
+                MINIMAL_STATE
+                .replace('"ready"', '"running"')
+                .replace('"attempt": 0', '"attempt": 1')
+                .replace(
+                    '"units": [{"id": "U1", "group": null, "kind": "step", '
+                    '"state": "running", "attempt": 1}]',
+                    '"units": ['
+                    '{"id": "U1", "group": null, "kind": "step", "state": "running", "attempt": 1}, '
+                    '{"id": "U2", "group": null, "kind": "step", "state": "pending", "attempt": 0}'
+                    ']',
+                )
+            )
+            pkg = _make_work_package(project_root, running_state)
+            (project_root / "ev.md").write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = self._pass(project_root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(pkg.is_dir(), "non-terminal pass must not archive the package")
+            archive_dir = project_root / ".agent-checkpoint" / "work" / "archive"
+            self.assertFalse(archive_dir.exists())
+
+    def test_fail_on_would_be_final_unit_does_not_archive(self):
+        """Catches a fail event on the last unit being treated as terminal."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = self._terminal_package(project_root)
+            evidence_file = project_root / "ev.md"
+            evidence_file.write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = run_cli(
+                "work", "fail",
+                "--unit", "U1",
+                "--plan-revision", "1",
+                "--evidence-file", str(evidence_file),
+                "--root", str(project_root),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(pkg.is_dir(), "fail must never trigger an archive move")
+            archive_dir = project_root / ".agent-checkpoint" / "work" / "archive"
+            self.assertFalse(archive_dir.exists())
+
+    def test_multi_package_coexistence_only_completed_one_moves(self):
+        """Catches a terminal pass on one package sweeping up an unrelated coexisting one."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            self._terminal_package(project_root, work_id="finishing")
+            other = _make_work_package(project_root, work_id="other-package")
+            (project_root / "ev.md").write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+
+            result = self._pass(project_root, work_id="finishing")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(other.is_dir(), "untouched package must not move")
+            archive_dir = project_root / ".agent-checkpoint" / "work" / "archive"
+            self.assertEqual(
+                [p.name for p in archive_dir.iterdir() if p.is_dir()],
+                [p.name for p in archive_dir.iterdir() if p.is_dir() and p.name.startswith("finishing-")],
+            )
+
+    def test_destination_collision_is_refused_and_source_left_intact(self):
+        """Catches a same-day retried pass merging into or overwriting an existing archive dir."""
+        from agent_checkpoint.workflows import archive_completed_package
+
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            pkg = self._terminal_package(project_root)
+            archive_dir = project_root / ".agent-checkpoint" / "work" / "archive"
+            colliding = archive_dir / "test-work-20260822"
+            colliding.mkdir(parents=True)
+            (colliding / "sentinel.txt").write_text("pre-existing", encoding="utf-8")
+
+            with self.assertRaises(ConfigError):
+                archive_completed_package(
+                    project_root, "test-work", pkg, date_str="20260822"
+                )
+
+            self.assertTrue(pkg.is_dir(), "source must be untouched when the destination collides")
+            self.assertEqual(
+                (colliding / "sentinel.txt").read_text(encoding="utf-8"), "pre-existing"
+            )
+            # The un-moved package is still fully functional.
+            status = run_cli(
+                "work", "status", "--id", "test-work", "--root", str(project_root), "--json",
+            )
+            self.assertEqual(status.returncode, 0, status.stderr)
+
+    def test_active_pointer_naming_archived_package_is_cleared(self):
+        """Catches the active pointer/root CONTINUE_PROMPT.md dangling after archive."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            self._terminal_package(project_root)
+            (project_root / "ev.md").write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+            write_active_work_id(project_root, "test-work")
+            write_root_continue_prompt(project_root, "test-work")
+
+            result = self._pass(project_root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNone(read_active_work_id(project_root))
+            self.assertFalse((project_root / "CONTINUE_PROMPT.md").exists())
+
+    def test_active_pointer_naming_a_different_package_is_untouched(self):
+        """Catches an archive move clearing a pointer that names another active package."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            self._terminal_package(project_root, work_id="finishing")
+            _make_work_package(project_root, work_id="other-active")
+            (project_root / "ev.md").write_text(MINIMAL_EVIDENCE, encoding="utf-8")
+            write_active_work_id(project_root, "other-active")
+            write_root_continue_prompt(project_root, "other-active")
+
+            result = self._pass(project_root, work_id="finishing")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(read_active_work_id(project_root), "other-active")
+            prompt_text = (project_root / "CONTINUE_PROMPT.md").read_text(encoding="utf-8")
+            self.assertIn("other-active", prompt_text)
 
 
 if __name__ == "__main__":

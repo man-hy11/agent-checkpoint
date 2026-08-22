@@ -2,9 +2,11 @@
 
 Agent Checkpoint is a portable skill and command-line tool for preserving the
 small amount of project state that a new AI-agent session actually needs. It
-keeps verified progress in `PROGRESS.md`, places detailed planning material in
-a template-backed work package, and gives the next session a deterministic
-reading order instead of asking it to reconstruct a compacted conversation.
+keeps verified progress in a work-scoped `PROGRESS.md`, places detailed
+planning material in a template-backed work package, and gives the next
+session a deterministic reading order — starting from the repo-root
+`CONTINUE_PROMPT.md` — instead of asking it to reconstruct a compacted
+conversation.
 
 It is deliberately not a chat transcript, memory database, or Git-diff store.
 Each checkpoint records the current goal, verified progress, current focus,
@@ -45,18 +47,19 @@ in `.agent-checkpoint/work/<id>/`.
    and attach concrete verification results separately. Do not paste diffs,
    credentials, or speculative summaries.
 
-4. After a handoff or compaction, start a new session and read
-   `PROGRESS.md`. Follow its work-package pointer to `CURRENT.md` and then
-   `CONTINUE_PROMPT.md`; execute only the documented Current Target.
+4. After a handoff or compaction, start a new session and read the repo-root
+   `CONTINUE_PROMPT.md`. It names the active work package; follow it to that
+   package's `CURRENT.md` and then its own `CONTINUE_PROMPT.md`, and execute
+   only the documented Current Target.
 
-This design makes `PROGRESS.md` a short routing document and keeps the
-template package as the source of detailed execution state.
+This design makes each work package's `PROGRESS.md` a short routing document
+and keeps the template package as the source of detailed execution state.
 
 ## Adapter behavior at a glance
 
 | Target | Checkpoint behavior | New-session behavior |
 |---|---|---|
-| Claude Code | Automatic PreCompact bootstrap only when no checkpoint exists; manual commands remain available | The hook tells a fresh startup session to read `PROGRESS.md` and follow its work-package pointer |
+| Claude Code | Automatic PreCompact bootstrap only when no checkpoint exists; manual commands remain available | The hook tells a fresh startup session to read the root `CONTINUE_PROMPT.md` and follow its work-package pointer |
 | Codex | Manual skill and CLI workflow | Read the checkpoint/work package manually |
 | OpenCode | Manual skill, commands, and CLI workflow | Read the checkpoint/work package manually |
 | Gemini CLI | Advisory pre-compression message when checkpoint state is missing or stale | Read the checkpoint/work package manually |
@@ -182,10 +185,11 @@ Run this once from the consumer project's root:
 agent-checkpoint init
 ```
 
-Initialization adds a managed block for `PROGRESS.md` and
-`PROGRESS_ARCHIVE.md` to that project's `.gitignore` without replacing its
-existing rules. This package repository does not globally ignore those names;
-initialization controls them in each consumer project.
+Initialization adds a managed block ignoring every work package's
+`PROGRESS.md` and `PROGRESS_ARCHIVE.md` (under
+`.agent-checkpoint/work/*/`) to that project's `.gitignore` without replacing
+its existing rules. This package repository does not globally ignore those
+names; initialization controls them in each consumer project.
 
 If either progress file is already tracked, an ignore rule does not remove it
 from the Git index. Agent Checkpoint inspects tracking and ignore state for both
@@ -237,10 +241,11 @@ agent-checkpoint workflow --type feature --id current
 
 Supported types are `project`, `feature`, `bugfix`, `refactor`, `upgrade`,
 `migration`, `performance`, `integration`, `release`, and `spike`. This writes
-a concise `PROGRESS.md` entry that points to
-`.agent-checkpoint/work/current/`. Planning fills that package's `CURRENT.md`
-and `PLAN_*.md` prompt; a new session reads `PROGRESS.md`, `CURRENT.md`, then
-`CONTINUE_PROMPT.md` and executes only the Current Target.
+a concise `PROGRESS.md` entry under `.agent-checkpoint/work/current/` and a
+repo-root `CONTINUE_PROMPT.md` naming that package. Planning fills the
+package's `CURRENT.md` and `PLAN_*.md` prompt; a new session reads the root
+`CONTINUE_PROMPT.md`, then the package's `CURRENT.md`, then its own
+`CONTINUE_PROMPT.md`, and executes only the Current Target.
 
 ## Runtime adapters
 
@@ -326,8 +331,8 @@ command after rebuilding when you want to refresh that installed copy.
 When Claude Code reaches compaction without an existing checkpoint, its hook
 writes one valid bootstrap entry through the bundled CLI, stops the current
 processing path, and asks the user to start a fresh Claude Code session. That
-new `startup` session receives only the `PROGRESS.md -> CURRENT.md ->
-CONTINUE_PROMPT.md` reading order, not a prior-history resume body. If the
+new `startup` session receives only the root `CONTINUE_PROMPT.md -> CURRENT.md
+-> CONTINUE_PROMPT.md` reading order, not a prior-history resume body. If the
 bootstrap write fails, compaction is blocked rather than proceeding without a
 checkpoint. Existing checkpoints are left unchanged.
 
@@ -346,10 +351,11 @@ bundle.
 ## Project configuration
 
 An optional `.agent-checkpoint.toml` in the consumer project's root overrides
-the defaults. Progress and archive paths are resolved under the canonical
-project root and must remain distinct. Absolute paths, `..`, control
-characters, reserved project/system paths, and symlinked path components are
-rejected.
+the defaults. `progress_path`/`archive_path` name the checkpoint filenames
+relative to the active work package (rebased under
+`.agent-checkpoint/work/<id>/` at runtime) and must remain distinct. Absolute
+paths, `..`, control characters, reserved project/system paths, and symlinked
+path components are rejected.
 
 ```toml
 progress_path = "PROGRESS.md"

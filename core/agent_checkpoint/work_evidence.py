@@ -9,7 +9,7 @@ from .storage import ValidationError
 
 MAX_EVIDENCE_CHARS = 8000
 
-_UNIT = re.compile(r"(?m)^##\s*Unit:\s*(?P<unit>\S+)\s*$")
+_UNIT = re.compile(r"(?m)^##\s*Unit:\s*(?P<unit>.+?)\s*$")
 _ATTEMPT = re.compile(r"(?m)^##\s*Attempt:\s*(?P<attempt>\d+)\s*$")
 _SECTION = re.compile(r"(?m)^###\s*(?P<key>[a-z0-9_]+)\s*$")
 

@@ -44,7 +44,8 @@ def main() -> int:
                 "continue": False,
                 "stopReason": (
                     "Checkpoint saved. Start a fresh Claude Code session in this "
-                    "project, then read PROGRESS.md before continuing."
+                    "project, then read the root CONTINUE_PROMPT.md before "
+                    "continuing."
                 ),
             }
         )

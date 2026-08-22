@@ -1,9 +1,12 @@
 """Work-state parsing, rendering, and transition tests."""
 
+from dataclasses import replace
 import unittest
 
 from agent_checkpoint.work_state import (
     StateError,
+    Unit,
+    WorkState,
     apply_event,
     parse_state,
     render_state,
@@ -151,6 +154,32 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(replanned.unit("P3").state, "superseded")
         self.assertIsNotNone(replanned.unit("P3"))
 
+    def test_start_moves_pending_to_running_and_increments_attempt(self):
+        """Catches BUG.md Bug 3: a unit left `pending` by workflow
+        initialization (the normal state for every non-first unit) must be
+        startable directly, mirroring the existing `ready` -> `running`
+        path, without requiring a manual state-block edit."""
+        result = apply_event(self.state, "PG", "start", plan_revision=5)
+
+        self.assertEqual(result.unit("PG").state, "running")
+        self.assertEqual(result.unit("PG").attempt, 1)
+
+    def test_ready_to_running_path_is_unaffected_by_the_pending_addition(self):
+        """Regression guard: adding ("pending", "start") must not change
+        the pre-existing ("ready", "start") behavior."""
+        result = apply_event(self.state, "P3", "start", plan_revision=5)
+
+        self.assertEqual(result.unit("P3").state, "running")
+        self.assertEqual(result.unit("P3").attempt, 1)
+
+    def test_running_unit_cannot_be_started_again(self):
+        """Catches the new pending-start entry over-broadening start beyond
+        pending/ready into an already-running unit."""
+        running = apply_event(self.state, "P3", "start", plan_revision=5)
+
+        with self.assertRaises(StateError):
+            apply_event(running, "P3", "start", plan_revision=5)
+
     def test_stale_plan_revision_is_rejected(self):
         """Catches a session planned against a superseded graph passing work."""
         with self.assertRaises(StateError):
@@ -165,6 +194,60 @@ class TransitionTests(unittest.TestCase):
 
         self.assertEqual(before.unit("P3").state, "ready")
         self.assertEqual(before.unit("P3").attempt, 0)
+
+
+def _state_with_units(*states: str) -> WorkState:
+    units = tuple(
+        Unit(id=f"U{index}", group=None, kind="step", state=state, attempt=0)
+        for index, state in enumerate(states, start=1)
+    )
+    return WorkState(
+        schema_version=1,
+        work_id="demo",
+        work_type="performance",
+        plan_revision=1,
+        brief_confirmed=True,
+        current_unit=units[0].id if units else None,
+        max_attempts=3,
+        attempt_override=None,
+        units=units,
+        attempts=(),
+    )
+
+
+class IsCompleteTests(unittest.TestCase):
+    def test_all_passed_is_complete(self):
+        """Catches the common terminal case (every unit passed) reporting incomplete."""
+        state = _state_with_units("passed", "passed")
+
+        self.assertTrue(state.is_complete())
+
+    def test_passed_and_superseded_mix_with_one_passed_is_complete(self):
+        """Catches chain-v1.md Row 4's superseded-counts-as-resolved rule being dropped."""
+        state = _state_with_units("passed", "superseded")
+
+        self.assertTrue(state.is_complete())
+
+    def test_all_superseded_with_none_passed_is_not_complete(self):
+        """Catches a package that superseded every unit without ever passing one
+        being treated as having finished work."""
+        state = _state_with_units("superseded", "superseded")
+
+        self.assertFalse(state.is_complete())
+
+    def test_any_non_terminal_unit_is_not_complete(self):
+        """Catches a still-pending/running/failed/blocked unit being ignored."""
+        for state_name in ("pending", "ready", "running", "failed", "blocked"):
+            with self.subTest(state=state_name):
+                state = _state_with_units("passed", state_name)
+
+                self.assertFalse(state.is_complete())
+
+    def test_empty_units_is_not_complete(self):
+        """Catches an empty unit list crashing or reporting complete."""
+        state = replace(_state_with_units("passed"), units=(), current_unit=None)
+
+        self.assertFalse(state.is_complete())
 
 
 if __name__ == "__main__":

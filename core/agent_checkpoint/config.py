@@ -1,6 +1,6 @@
 """Project configuration and managed Git-ignore support."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import errno
 import math
 import os
@@ -12,6 +12,10 @@ import tomllib
 
 
 _CONFIG_FILENAME = ".agent-checkpoint.toml"
+_ACTIVE_POINTER_NAME = "active"
+_WORK_DIRNAME = "work"
+_CHECKPOINT_DIRNAME = ".agent-checkpoint"
+_WORK_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 _BLOCK_START = "# >>> agent-checkpoint >>>"
 _BLOCK_END = "# <<< agent-checkpoint <<<"
 _GITIGNORE_MAGIC = frozenset(r"\*?[]")
@@ -164,6 +168,110 @@ def _paths_overlap(first: Path, second: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def read_active_work_id(project_root: Path) -> str | None:
+    """Return the active work id from ``.agent-checkpoint/active``, or ``None``.
+
+    The single reader of the active-pointer file (R2 D3). Returns ``None`` when
+    the pointer file is absent, or when it names a work id that has no matching
+    package directory under ``work/`` (a stale pointer degrades to the
+    no-pointer path rather than crashing callers, R2 D4). Raises ``ConfigError``
+    when the pointer file is a symlink or its content does not validate as a
+    work id (a corrupted/hand-edited file is a louder failure than an absent
+    one).
+    """
+    raw_id = _read_raw_active_pointer(project_root)
+    if raw_id is None:
+        return None
+    if not _active_work_dir(project_root, raw_id).is_dir():
+        return None
+    return raw_id
+
+
+def _read_raw_active_pointer(project_root: Path) -> str | None:
+    """Return the validated pointer value without checking the work directory.
+
+    Distinguishes an absent pointer (``None``) from a stale one so callers can
+    name the stale id in a warning; the public ``read_active_work_id`` collapses
+    both to ``None`` per R2 D4.
+    """
+    pointer_path = Path(project_root) / _CHECKPOINT_DIRNAME / _ACTIVE_POINTER_NAME
+    _reject_symlink(pointer_path, "active pointer")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(pointer_path, flags)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ConfigError("active pointer must not be a symlink") from None
+        raise
+    with os.fdopen(descriptor, "r", encoding="utf-8") as file:
+        text = file.read()
+    value = text.strip()
+    if _WORK_ID_PATTERN.fullmatch(value) is None:
+        raise ConfigError("active pointer names an invalid work id")
+    return value
+
+
+def _active_work_dir(project_root: Path, work_id: str) -> Path:
+    return (
+        Path(project_root) / _CHECKPOINT_DIRNAME / _WORK_DIRNAME / work_id
+    )
+
+
+def write_active_work_id(project_root: Path, work_id: str) -> None:
+    """Persist ``work_id`` as the active pointer (R2 D1/D2), atomically.
+
+    Composes with ``storage``'s atomic-write primitive; the pointer is a single
+    line naming the work package that root-level commands resolve against.
+    """
+    if _WORK_ID_PATTERN.fullmatch(work_id) is None:
+        raise ConfigError("work id must use lowercase letters, digits, and hyphens")
+    from .storage import _atomic_write  # local import avoids an import cycle
+
+    root = Path(project_root).resolve()
+    pointer_path = root / _CHECKPOINT_DIRNAME / _ACTIVE_POINTER_NAME
+    _reject_symlink(pointer_path, "active pointer")
+    _atomic_write(root, pointer_path, work_id + "\n")
+
+
+def resolve_active_config(project_root: Path, config: ProjectConfig) -> ProjectConfig:
+    """Return a work-scoped config for the active package.
+
+    Reads the active pointer (R2 D3) and rebases ``progress_path``/
+    ``archive_path`` under ``.agent-checkpoint/work/<active_id>/`` so the live
+    checkpoint and its lock become per-work-package. Raises ``ConfigError`` when
+    no usable active pointer exists — never a silent fallback to the old global
+    path (R2 D4). A stale pointer raises with its id named, so the message points
+    the user at the missing package rather than crashing (D4).
+    """
+    active_id = read_active_work_id(project_root)
+    if active_id is None:
+        stale_id = _read_raw_active_pointer(project_root)
+        if stale_id is not None:
+            raise ConfigError(
+                f"Active work package '{stale_id}' no longer exists; "
+                "run `agent-checkpoint work status` to see available packages"
+            )
+        raise ConfigError(
+            "No active work package set; "
+            "run `agent-checkpoint workflow --type T --id ID` first"
+        )
+    return work_scoped_config(config, active_id)
+
+
+def work_scoped_config(config: ProjectConfig, work_id: str) -> ProjectConfig:
+    """Rebase a config's progress/archive paths under a work package directory."""
+    prefix = Path(_CHECKPOINT_DIRNAME) / _WORK_DIRNAME / work_id
+    return replace(
+        config,
+        progress_path=prefix / config.progress_path,
+        archive_path=prefix / config.archive_path,
+    )
 
 
 def ensure_gitignore(project_root: Path, config: ProjectConfig) -> IgnoreResult:
@@ -331,12 +439,23 @@ def _render_managed_block(config: ProjectConfig, newline: str) -> str:
     return newline.join(
         (
             _BLOCK_START,
-            _gitignore_pattern(config.progress_path),
-            _gitignore_pattern(config.archive_path),
+            _work_scoped_gitignore_pattern(config.progress_path),
+            _work_scoped_gitignore_pattern(config.archive_path),
             _BLOCK_END,
             "",
         )
     )
+
+
+def _work_scoped_gitignore_pattern(path: Path) -> str:
+    """Ignore one checkpoint filename under every work package directory.
+
+    Progress files now live at ``.agent-checkpoint/work/<id>/<name>`` (R3), so a
+    single static path no longer covers them; a ``*`` segment matches every
+    package while the surrounding literal segments stay escaped for git.
+    """
+    prefix = f"{_CHECKPOINT_DIRNAME}/{_WORK_DIRNAME}/*/"
+    return prefix + _gitignore_pattern(path)
 
 
 def _gitignore_pattern(path: Path) -> str:

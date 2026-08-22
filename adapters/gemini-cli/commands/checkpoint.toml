@@ -18,8 +18,11 @@ For a new work item, choose the matching bundled workflow and run:
 agent-checkpoint workflow --type TYPE --id current
 
 Read and fill `.agent-checkpoint/work/current/CURRENT.md` and its `PLAN_*.md`
-prompt first. Keep `PROGRESS.md` concise: point to the work package, its
-Current Step/Gate, and `PROGRESS.md -> CURRENT.md -> CONTINUE_PROMPT.md`.
+prompt first. Keep `.agent-checkpoint/work/current/PROGRESS.md` concise:
+point to the work package, its Current Step/Gate, and the root
+`CONTINUE_PROMPT.md -> CURRENT.md -> CONTINUE_PROMPT.md` read order (root
+`CONTINUE_PROMPT.md` names the active package; the rest live under
+`.agent-checkpoint/work/current/`).
 If the user has not specified a type, ask them to choose one; do not infer it.
 Before filling planning files, ask concise questions for missing goal, scope,
 success criteria, constraints, or affected area. Do not invent details or

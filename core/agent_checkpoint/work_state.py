@@ -23,6 +23,7 @@ WORK_TYPES = frozenset(
 
 TRANSITIONS: dict[tuple[str, str], str] = {
     ("ready", "start"): "running",
+    ("pending", "start"): "running",
     ("running", "pass"): "passed",
     ("running", "fail"): "failed",
     ("failed", "retry"): "ready",
@@ -80,6 +81,21 @@ class WorkState:
             if candidate.id == unit_id:
                 return candidate
         return None
+
+    def is_complete(self) -> bool:
+        """Return True iff the package has finished all its work (chain-v1.md Row 4).
+
+        Every unit must be ``passed`` or ``superseded``, and at least one unit
+        must be ``passed`` — a package that superseded all of its own units
+        without ever passing one has not finished any work. An empty
+        ``units`` tuple returns False rather than raising: no units passed
+        means the "at least one passed" clause is unmet.
+        """
+        if not self.units:
+            return False
+        if any(unit.state not in ("passed", "superseded") for unit in self.units):
+            return False
+        return any(unit.state == "passed" for unit in self.units)
 
 
 def parse_state(text: str) -> WorkState:

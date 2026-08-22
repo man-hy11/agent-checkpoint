@@ -17,7 +17,7 @@ from .work_state import BLOCK_BEGIN, BLOCK_END, WorkState
 _WORK_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 _RESERVED_COMPONENTS = frozenset({"templates", "prompts", "shared"})
 
-# Mirrors contracts/chain-v1.md rows 1-12 exactly. A test proves every row's
+# Mirrors contracts/chain-v1.md rows 1-13 exactly. A test proves every row's
 # next_skill matches work_chain.next_skill for a constructed state satisfying
 # its condition, so RULES.md's rendered table can never silently drift from
 # the engine (design decision D4's "generated fallback ... a test proves
@@ -26,8 +26,12 @@ CHAIN_TABLE: tuple[tuple[str, str], ...] = (
     ("no state block exists", "checkpoint-select-workflow"),
     ("brief_confirmed is false", "checkpoint-brainstorm"),
     ("units is empty", "checkpoint-plan"),
-    ("every unit is passed", "checkpoint-handoff"),
+    (
+        "every unit is passed or superseded, and at least one unit is passed",
+        "checkpoint-handoff",
+    ),
     ("current_unit names no member of units", "checkpoint-plan"),
+    ("current unit state is passed (and not every unit is passed)", "checkpoint-plan"),
     ("current unit state is superseded", "checkpoint-plan"),
     ("current unit state is blocked", "checkpoint-recover"),
     (
@@ -191,7 +195,15 @@ def _render_continue_prompt(manifest: WorkflowManifest, work_id: str) -> str:
         f"2. Read `RULES.md` for this `{manifest.type}` package's hard rules, "
         "evidence requirements, and unit ID scheme.\n"
         "3. Read `PLAN.md` for the approved unit graph.\n"
-        "4. Act only on the current unit named by `CURRENT.md`.\n"
+        "4. Act only on the current unit named by `CURRENT.md`.\n\n"
+        "Rules:\n\n"
+        "- one invocation = one Step or one Gate;\n"
+        "- preserve the work-type evidence chain and hard rules;\n"
+        "- no unrelated changes;\n"
+        "- update CURRENT.md only after verified PASS;\n"
+        "- FAIL does not advance;\n"
+        "- write completion report and STOP.\n\n"
+        "Advancing Current Target does not authorize beginning it in this invocation.\n"
     )
 
 

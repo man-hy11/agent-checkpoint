@@ -96,6 +96,57 @@ class NextSkillTests(unittest.TestCase):
         """Catches completed work failing to terminate at a handoff."""
         self.assertEqual(next_skill(state(units=unit("passed", attempt=1))), "checkpoint-handoff")
 
+    def test_passed_and_superseded_mix_routes_to_handoff(self):
+        """Catches BUG.md Bug 4: a package with a superseded unit (a normal,
+        resolved re-planning outcome, not a failure) must still reach
+        checkpoint-handoff once every other unit is passed — superseded
+        must not block completion forever."""
+        current = state(
+            units=(
+                Unit("P1", None, "step", "passed", 1),
+                Unit("P2", None, "step", "superseded", 1),
+                Unit("P3", None, "step", "passed", 2),
+                Unit("Gate", None, "gate", "passed", 2),
+            ),
+            current_unit="Gate",
+        )
+        self.assertEqual(next_skill(current), "checkpoint-handoff")
+
+    def test_all_superseded_does_not_route_to_handoff(self):
+        """Catches the completion check treating superseded as sufficient on
+        its own: a package where every unit was superseded and nothing was
+        ever passed has not actually finished any work and must not be
+        reported complete."""
+        current = state(
+            units=(
+                Unit("P1", None, "step", "superseded", 1),
+                Unit("P2", None, "step", "superseded", 1),
+            ),
+            current_unit="P1",
+        )
+        self.assertNotEqual(next_skill(current), "checkpoint-handoff")
+
+    def test_passed_current_unit_with_pending_sibling_routes_to_plan(self):
+        """Catches BUG.md Bug 1: a stale current_unit pointing at an
+        already-passed unit while a sibling is still pending must not fall
+        through to checkpoint-handoff (which would falsely signal the whole
+        package is complete)."""
+        current = state(
+            units=(
+                Unit("P1", None, "step", "passed", 1),
+                Unit("P2", None, "step", "pending", 0),
+            ),
+            current_unit="P1",
+        )
+        self.assertEqual(next_skill(current), "checkpoint-plan")
+
+    def test_all_passed_still_wins_over_passed_current_unit_row(self):
+        """Catches the new row 6 (passed-but-stale) shadowing row 4
+        (uniformly passed) when both could otherwise match — row 4 must be
+        checked first and terminate at handoff."""
+        current = state(units=unit("passed", attempt=1), current_unit="P3")
+        self.assertEqual(next_skill(current), "checkpoint-handoff")
+
     def test_evidence_and_inspect_are_never_routed_to(self):
         """Catches the chain advertising skills that must be reached another way."""
         combinations = [

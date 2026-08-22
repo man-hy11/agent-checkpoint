@@ -7,9 +7,10 @@ from pathlib import Path
 import sys
 
 
-_NEW_SESSION_GUIDANCE = """Checkpoint handoff available. Read PROGRESS.md first.
-Then follow the work-package pointer recorded there. Execute only the Current
-Target; do not rely on the prior session's compacted conversation history."""
+_NEW_SESSION_GUIDANCE = """Checkpoint handoff available. Read the root
+CONTINUE_PROMPT.md first. Then follow the work-package pointer recorded
+there. Execute only the Current Target; do not rely on the prior session's
+compacted conversation history."""
 
 
 def main() -> int:
@@ -48,15 +49,15 @@ def _project_root(payload: dict) -> Path:
 
 
 def _workflow_guidance(project_root: Path) -> str | None:
-    progress = project_root / "PROGRESS.md"
+    continue_prompt = project_root / "CONTINUE_PROMPT.md"
+    marker = "Active work package: `.agent-checkpoint/work/"
     try:
-        text = progress.read_text(encoding="utf-8")
+        text = continue_prompt.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return None
-    marker = "- Work package: .agent-checkpoint/work/"
     for line in text.splitlines():
         if line.startswith(marker):
-            work_id = line.removeprefix(marker).strip().rstrip("/")
+            work_id = line.removeprefix(marker).split("`", 1)[0].strip().rstrip("/")
             if work_id and all(char.islower() or char.isdigit() or char == "-" for char in work_id):
                 return (
                     f"{_NEW_SESSION_GUIDANCE}\nThen read "

@@ -14,8 +14,11 @@ only source. Record only what changed this session.
 For a new work item, select the matching bundled development workflow and run
 `"${CLAUDE_PLUGIN_ROOT}/bin/agent-checkpoint" workflow --type TYPE --id current`.
 Read and fill `.agent-checkpoint/work/current/CURRENT.md` and its `PLAN_*.md`
-prompt first. Keep `PROGRESS.md` concise: point to the work package, Current
-Step/Gate, and `PROGRESS.md -> CURRENT.md -> CONTINUE_PROMPT.md` read order.
+prompt first. Keep `.agent-checkpoint/work/current/PROGRESS.md` concise:
+point to the work package, Current Step/Gate, and the root `CONTINUE_PROMPT.md
+-> CURRENT.md -> CONTINUE_PROMPT.md` read order (root `CONTINUE_PROMPT.md`
+names the active package; the rest live under
+`.agent-checkpoint/work/current/`).
 If the user has not specified a type, ask them to choose one; do not infer it.
 Before filling the planning files, ask concise questions for any missing goal,
 scope, success criterion, constraint, or affected area. Do not invent details

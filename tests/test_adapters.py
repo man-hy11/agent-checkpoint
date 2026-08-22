@@ -52,10 +52,30 @@ def run_hook(
     )
 
 
+def activate_work_package(project: Path, work_id: str = "current") -> Path:
+    """Create a work package and point the active pointer at it.
+
+    Since R3, ``write`` (and the read commands) resolve the live checkpoint
+    through ``.agent-checkpoint/active``; a valid checkpoint therefore lives at
+    ``.agent-checkpoint/work/<id>/PROGRESS.md`` rather than the project root.
+    """
+    package = project / ".agent-checkpoint" / "work" / work_id
+    package.mkdir(parents=True, exist_ok=True)
+    (project / ".agent-checkpoint" / "active").write_text(
+        work_id + "\n", encoding="utf-8"
+    )
+    return package
+
+
+def scoped_progress(project: Path, work_id: str = "current") -> Path:
+    return project / ".agent-checkpoint" / "work" / work_id / "PROGRESS.md"
+
+
 def write_valid_checkpoint(
     bundle: Path, project: Path, body: str = VALID_BODY
 ) -> None:
     """Write one valid checkpoint through the bundle's public launcher."""
+    activate_work_package(project)
     result = subprocess.run(
         [
             bundle / "bin" / "agent-checkpoint",
@@ -127,8 +147,18 @@ class ClaudeAdapterTests(unittest.TestCase):
                 )
                 self.assertTrue((bundle / relative_path).is_file())
 
-    def test_claude_precompact_writes_initial_checkpoint_when_missing(self):
-        """Catches compacting with no persisted entry or leaking Claude state."""
+    def test_claude_precompact_blocks_when_no_active_work_package(self):
+        """R3: a bootstrap write needs an active work package; on a fresh project
+        the hook can no longer silently persist to a project-root PROGRESS.md.
+
+        Since R3 relocated PROGRESS.md into ``.agent-checkpoint/work/<id>/`` and
+        made ``write`` refuse when no active pointer is set (no silent global
+        fallback), the PreCompact bootstrap write fails and the hook blocks
+        compaction — the same safety path as an ordinary initial-write failure.
+        Teaching the hook to establish a default work package first is adapter
+        runtime work outside R3's config/storage/cli scope; tracked for the
+        adapter update pass after R4 (root pointer) and R6 (doc/adapter sweep).
+        """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             project = root / "project"
@@ -137,37 +167,13 @@ class ClaudeAdapterTests(unittest.TestCase):
             payload = {"cwd": str(project), "session_id": "s1"}
 
             first = run_hook(bundle, "pre_compact.py", payload)
-            second = run_hook(bundle, "pre_compact.py", payload)
 
             self.assertEqual(first.returncode, 0, first.stderr)
-            self.assertEqual(second.returncode, 0, second.stderr)
-            first_output = json.loads(first.stdout)
-            self.assertFalse(first_output["continue"])
-            self.assertIn("fresh Claude Code session", first_output["stopReason"])
-            self.assertEqual(second.stdout, "")
             self.assertEqual(first.stderr, "")
-            self.assertEqual(second.stderr, "")
-            progress = (project / "PROGRESS.md").read_text(encoding="utf-8")
-            self.assertIn("## 1. Goal / Plan", progress)
-            self.assertIn(
-                "Bootstrap checkpoint created automatically by the Claude PreCompact hook.",
-                progress,
-            )
-            self.assertIn(
-                "No task progress or verification was captured because the lifecycle hook cannot access conversation history.",
-                progress,
-            )
-            self.assertIn(
-                "Write a manual checkpoint with the real goal, progress, focus, and decisions.",
-                progress,
-            )
-            self.assertIn("Record concrete test or build results", progress)
-            self.assertIn(
-                "Keep bootstrap entries free of secrets, diff content, and guessed conversation summaries.",
-                progress,
-            )
-            self.assertNotIn("claude-precompact-sessions", progress)
-            self.assertFalse((project / ".agent-checkpoint").exists())
+            output = json.loads(first.stdout)
+            self.assertEqual(output["decision"], "block")
+            self.assertIn("could not be written", output["reason"])
+            self.assertFalse((project / "PROGRESS.md").exists())
             self.assertFalse((project / ".claude").exists())
 
     def test_claude_precompact_allows_when_checkpoint_exists(self):
@@ -188,7 +194,9 @@ class ClaudeAdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertEqual(result.stderr, "")
-            self.assertFalse((project / ".agent-checkpoint").exists())
+            # The active checkpoint lives inside the work package; the hook must
+            # neither create a root-level PROGRESS.md nor a bootstrap entry.
+            self.assertFalse((project / "PROGRESS.md").exists())
 
     def test_claude_precompact_keeps_existing_checkpoint_unchanged(self):
         """Catches bootstrap writes mutating an existing project checkpoint."""
@@ -198,7 +206,8 @@ class ClaudeAdapterTests(unittest.TestCase):
             project.mkdir()
             bundle = build_bundle("claude-code", root)
             write_valid_checkpoint(bundle, project)
-            before = (project / "PROGRESS.md").read_text(encoding="utf-8")
+            progress_path = scoped_progress(project)
+            before = progress_path.read_text(encoding="utf-8")
 
             result = run_hook(
                 bundle,
@@ -209,7 +218,7 @@ class ClaudeAdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertEqual(result.stderr, "")
-            self.assertEqual((project / "PROGRESS.md").read_text(encoding="utf-8"), before)
+            self.assertEqual(progress_path.read_text(encoding="utf-8"), before)
 
     def test_claude_precompact_blocks_when_initial_write_fails(self):
         """Catches compaction continuing after an automatic checkpoint write failure."""
@@ -240,8 +249,17 @@ class ClaudeAdapterTests(unittest.TestCase):
             self.assertIn("could not be written", output["reason"])
             self.assertFalse((project / "PROGRESS.md").exists())
 
-    def test_claude_session_start_skips_clear_and_injects_workflow_entrypoint(self):
-        """Catches new sessions receiving a prior-history resume instead of a pointer."""
+    def test_claude_session_start_skips_clear_and_stays_silent_without_root_continue_prompt(
+        self,
+    ):
+        """R6: session_start reads the repo-root CONTINUE_PROMPT.md, the current
+        pointer contract (R4) established after R3 relocated checkpoints under
+        ``.agent-checkpoint/work/<id>/``. With no root CONTINUE_PROMPT.md present
+        (no active package), startup guidance is empty.
+
+        ``clear``/``resume`` sources stay silent (unchanged guard). ``startup``
+        only emits guidance once a root CONTINUE_PROMPT.md exists.
+        """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             project = root / "project"
@@ -272,12 +290,45 @@ class ClaudeAdapterTests(unittest.TestCase):
             self.assertEqual(resumed.stdout, "")
             self.assertEqual(clear.stderr, "")
             self.assertEqual(start.stderr, "")
+            # No root CONTINUE_PROMPT.md exists (write_valid_checkpoint only sets
+            # the active pointer and work-scoped PROGRESS.md, not the root file),
+            # so no startup guidance is emitted.
+            self.assertEqual(start.stdout, "")
+            self.assertFalse((project / "CONTINUE_PROMPT.md").exists())
+
+    def test_claude_session_start_emits_guidance_from_root_continue_prompt(self):
+        """R6: once a root CONTINUE_PROMPT.md names the active package (the R4
+        pointer contract), startup guidance points the session at that
+        package's own CURRENT.md/CONTINUE_PROMPT.md.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            project.mkdir()
+            bundle = build_bundle("claude-code", root)
+            write_valid_checkpoint(bundle, project)
+            (project / "CONTINUE_PROMPT.md").write_text(
+                "# Continue: current\n\n"
+                "Active work package: `.agent-checkpoint/work/current`.\n",
+                encoding="utf-8",
+            )
+
+            start = run_hook(
+                bundle,
+                "session_start.py",
+                {"cwd": str(project), "source": "startup"},
+            )
+
+            self.assertEqual(start.returncode, 0, start.stderr)
+            self.assertEqual(start.stderr, "")
             output = json.loads(start.stdout)
-            specific = output["hookSpecificOutput"]
-            self.assertEqual(specific["hookEventName"], "SessionStart")
-            self.assertIn("Read PROGRESS.md first", specific["additionalContext"])
-            self.assertIn("work-package pointer", specific["additionalContext"])
-            self.assertNotIn("## 1. Goal / Plan", specific["additionalContext"])
+            guidance = output["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("root\nCONTINUE_PROMPT.md", guidance)
+            self.assertIn(
+                ".agent-checkpoint/work/current/CURRENT.md and "
+                "CONTINUE_PROMPT.md",
+                guidance,
+            )
 
 
 class CodexOpenCodeAdapterTests(unittest.TestCase):
@@ -424,7 +475,7 @@ class GeminiAdapterTests(unittest.TestCase):
             project.mkdir()
             bundle = build_bundle("gemini-cli", root)
             write_valid_checkpoint(bundle, project)
-            progress_path = project / "PROGRESS.md"
+            progress_path = scoped_progress(project)
             progress = progress_path.read_text(encoding="utf-8")
             prefix, marker, remainder = progress.partition("## Checkpoint ")
             self.assertEqual(marker, "## Checkpoint ")

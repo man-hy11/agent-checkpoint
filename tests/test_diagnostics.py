@@ -13,6 +13,7 @@ from agent_checkpoint.diagnostics import (
     build_resume,
     build_status,
 )
+from agent_checkpoint.handoff import write_handoff_report
 from agent_checkpoint.progress import render_entry
 from tests.helpers import FIXED_TIME, VALID_BODY
 
@@ -62,6 +63,25 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("Recent Decisions:", handoff)
         self.assertNotIn("uncommitted-file-content", handoff)
         self.assertLessEqual(len(handoff), 2_000)
+
+    def test_handoff_lists_open_reports_when_present_and_none_when_absent(self):
+        """Catches build_handoff omitting open reports, or showing them when none exist."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            write_progress(project_root, VALID_BODY)
+
+            empty_handoff = build_handoff(project_root, ProjectConfig(), max_chars=4_000)
+
+            write_handoff_report(
+                project_root, "current", "R5", "Deferred cleanup", "Found during R5."
+            )
+            populated_handoff = build_handoff(project_root, ProjectConfig(), max_chars=4_000)
+
+        self.assertIn("Open Handoff Reports:", empty_handoff)
+        self.assertIn("Open Handoff Reports:\n- None", empty_handoff)
+        self.assertIn("Open Handoff Reports:", populated_handoff)
+        self.assertIn("current-R5-deferred-cleanup", populated_handoff)
+        self.assertNotIn("Open Handoff Reports:\n- None", populated_handoff)
 
     def test_language_setting_is_rendered_in_resume_and_handoff(self):
         """Catches a validated language option having no consumer-visible effect."""
@@ -400,6 +420,8 @@ class WorkStatusComposedDiagnosticsTests(unittest.TestCase):
                 "- Test it",
                 "Recent Decisions:",
                 "- Standard library only",
+                "Open Handoff Reports:",
+                "- None",
                 "",
             )
         )

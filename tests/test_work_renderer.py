@@ -144,32 +144,44 @@ class ChainTableEquivalenceTests(unittest.TestCase):
         state = replace(_BASE_STATE, current_unit="F9")
         self.assertEqual(next_skill(state), CHAIN_TABLE[4][1])
 
+    def test_current_unit_passed_but_not_all_passed(self):
+        """Catches row 6 drifting from the engine's stale-passed-tracker check."""
+        state = replace(
+            _BASE_STATE,
+            current_unit="F1",
+            units=(
+                Unit(id="F1", group=None, kind="step", state="passed", attempt=1),
+                Unit(id="F2", group=None, kind="step", state="pending", attempt=1),
+            ),
+        )
+        self.assertEqual(next_skill(state), CHAIN_TABLE[5][1])
+
     def test_current_unit_superseded(self):
-        """Catches row 6 drifting from the engine's superseded check."""
+        """Catches row 7 drifting from the engine's superseded check."""
         state = replace(
             _BASE_STATE,
             units=(Unit(id="F1", group=None, kind="step", state="superseded", attempt=1),),
         )
-        self.assertEqual(next_skill(state), CHAIN_TABLE[5][1])
+        self.assertEqual(next_skill(state), CHAIN_TABLE[6][1])
 
     def test_current_unit_blocked(self):
-        """Catches row 7 drifting from the engine's blocked check."""
+        """Catches row 8 drifting from the engine's blocked check."""
         state = replace(
             _BASE_STATE,
             units=(Unit(id="F1", group=None, kind="step", state="blocked", attempt=1),),
         )
-        self.assertEqual(next_skill(state), CHAIN_TABLE[6][1])
+        self.assertEqual(next_skill(state), CHAIN_TABLE[7][1])
 
     def test_failed_without_diagnosis(self):
-        """Catches row 8 drifting from the engine's no-fingerprint failed check."""
+        """Catches row 9 drifting from the engine's no-fingerprint failed check."""
         state = replace(
             _BASE_STATE,
             units=(Unit(id="F1", group=None, kind="step", state="failed", attempt=1),),
         )
-        self.assertEqual(next_skill(state), CHAIN_TABLE[7][1])
+        self.assertEqual(next_skill(state), CHAIN_TABLE[8][1])
 
     def test_failed_with_diagnosis(self):
-        """Catches row 9 drifting from the engine's diagnosed-failed check."""
+        """Catches row 10 drifting from the engine's diagnosed-failed check."""
         state = replace(
             _BASE_STATE,
             units=(Unit(id="F1", group=None, kind="step", state="failed", attempt=1),),
@@ -180,27 +192,27 @@ class ChainTableEquivalenceTests(unittest.TestCase):
                 ),
             ),
         )
-        self.assertEqual(next_skill(state), CHAIN_TABLE[8][1])
+        self.assertEqual(next_skill(state), CHAIN_TABLE[9][1])
 
     def test_current_unit_pending_or_ready(self):
-        """Catches row 10 drifting from the engine's ready-unit check."""
-        self.assertEqual(next_skill(_BASE_STATE), CHAIN_TABLE[9][1])
+        """Catches row 11 drifting from the engine's ready-unit check."""
+        self.assertEqual(next_skill(_BASE_STATE), CHAIN_TABLE[10][1])
 
     def test_current_unit_running_gate(self):
-        """Catches row 11 drifting from the engine's running-gate check."""
+        """Catches row 12 drifting from the engine's running-gate check."""
         state = replace(
             _BASE_STATE,
             units=(Unit(id="F1", group=None, kind="gate", state="running", attempt=1),),
         )
-        self.assertEqual(next_skill(state), CHAIN_TABLE[10][1])
+        self.assertEqual(next_skill(state), CHAIN_TABLE[11][1])
 
     def test_current_unit_running_step(self):
-        """Catches row 12 drifting from the engine's running-step check."""
+        """Catches row 13 drifting from the engine's running-step check."""
         state = replace(
             _BASE_STATE,
             units=(Unit(id="F1", group=None, kind="step", state="running", attempt=1),),
         )
-        self.assertEqual(next_skill(state), CHAIN_TABLE[11][1])
+        self.assertEqual(next_skill(state), CHAIN_TABLE[12][1])
 
 
 if __name__ == "__main__":

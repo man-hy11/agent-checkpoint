@@ -1,14 +1,25 @@
 """Command-line interface for portable project checkpoints."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 import sys
 from typing import Sequence
 
-from .config import ConfigError, ensure_gitignore, load_config
+from .config import (
+    ConfigError,
+    ProjectConfig,
+    ensure_gitignore,
+    load_config,
+    read_active_work_id,
+    resolve_active_config,
+    work_scoped_config,
+    write_active_work_id,
+)
 from .diagnostics import build_doctor, build_handoff, build_resume, build_status, build_work_status
+from .handoff import resolve_handoff_report
 from .progress import contains_diff_content, validate_entry
 from .secrets import find_secret_kind
 from .storage import (
@@ -24,7 +35,13 @@ from .work_migration import apply_migration, plan_migration
 from .work_state import StateError, parse_state
 from .work_store import claim as _work_claim
 from .work_store import revise_plan as _work_revise
-from .workflows import discard_workflow, initialize_workflow, workflow_types
+from .workflows import (
+    archive_completed_package,
+    discard_workflow,
+    initialize_workflow,
+    workflow_types,
+    write_root_continue_prompt,
+)
 
 
 EXIT_SUCCESS = 0
@@ -34,6 +51,7 @@ EXIT_LOCK_TIMEOUT = 4
 EXIT_IO = 5
 
 _RESERVED_SEPARATOR = re.compile(r"(?m)^---\s*$")
+_WORK_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 
 
 class _SafeArgumentParser(argparse.ArgumentParser):
@@ -79,6 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_parser = commands.add_parser("handoff", help="render handoff context")
     _add_root(handoff_parser)
     _add_max_chars(handoff_parser)
+    handoff_sub = handoff_parser.add_subparsers(dest="handoff_command", required=False)
+    handoff_resolve_p = handoff_sub.add_parser(
+        "resolve", help="remove a resolved handoff report"
+    )
+    _add_root(handoff_resolve_p)
+    handoff_resolve_p.add_argument(
+        "--name", required=True, help="handoff report filename (with or without .md)"
+    )
 
     doctor_parser = commands.add_parser("doctor", help="diagnose checkpoint setup")
     _add_root(doctor_parser)
@@ -105,27 +131,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     work_status_p = work_sub.add_parser("status", help="show work package status")
     _add_root(work_status_p)
+    _add_id(work_status_p)
     work_status_p.add_argument("--json", action="store_true", dest="json_output")
 
     work_start_p = work_sub.add_parser("start", help="start a unit")
     _add_root(work_start_p)
+    _add_id(work_start_p)
     work_start_p.add_argument("--unit", required=True)
     work_start_p.add_argument("--plan-revision", type=int, required=True)
 
     work_pass_p = work_sub.add_parser("pass", help="mark a unit passed")
     _add_root(work_pass_p)
+    _add_id(work_pass_p)
     work_pass_p.add_argument("--unit", required=True)
     work_pass_p.add_argument("--plan-revision", type=int, required=True)
     work_pass_p.add_argument("--evidence-file", required=True)
 
     work_fail_p = work_sub.add_parser("fail", help="mark a unit failed")
     _add_root(work_fail_p)
+    _add_id(work_fail_p)
     work_fail_p.add_argument("--unit", required=True)
     work_fail_p.add_argument("--plan-revision", type=int, required=True)
     work_fail_p.add_argument("--evidence-file", required=True)
 
     work_recover_p = work_sub.add_parser("recover", help="apply a recovery event")
     _add_root(work_recover_p)
+    _add_id(work_recover_p)
     work_recover_p.add_argument("--unit", required=True)
     work_recover_p.add_argument("--plan-revision", type=int, required=True)
     work_recover_p.add_argument(
@@ -136,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     work_revise_p = work_sub.add_parser("revise", help="increment plan_revision")
     _add_root(work_revise_p)
+    _add_id(work_revise_p)
     work_revise_p.add_argument("--plan-revision", type=int, required=True)
     work_revise_p.add_argument("--evidence-file", required=True)
 
@@ -224,7 +256,8 @@ def _dispatch(arguments: argparse.Namespace) -> int:
         print(f"Checkpoint ignore rules {action}.", file=sys.stderr)
     elif arguments.command == "write":
         body = _read_entry(arguments.entry)
-        CheckpointStore(root, config).write(
+        work_config = resolve_active_config(root, config)
+        CheckpointStore(root, work_config).write(
             body,
             pinned=arguments.pin,
             verification=arguments.verification,
@@ -237,9 +270,12 @@ def _dispatch(arguments: argparse.Namespace) -> int:
         ensure_gitignore(root, config)
         workflow = initialize_workflow(root, arguments.type, arguments.id)
         try:
-            CheckpointStore(root, config).write(workflow.progress_entry)
+            write_active_work_id(root, workflow.work_id)
+            write_root_continue_prompt(root, workflow.work_id)
+            work_config = work_scoped_config(config, workflow.work_id)
+            CheckpointStore(root, work_config).write(workflow.progress_entry)
         except BaseException:
-            discard_workflow(workflow)
+            discard_workflow(workflow, root)
             raise
         print(f"Workflow package created: {workflow.path}", file=sys.stderr)
     elif arguments.command in ("validate", "dry-run"):
@@ -247,7 +283,7 @@ def _dispatch(arguments: argparse.Namespace) -> int:
         label = "Dry-run valid" if arguments.command == "dry-run" else "Entry valid"
         print(f"{label}.", file=sys.stderr)
     elif arguments.command == "status":
-        status = build_status(root, config)
+        status = build_status(root, _read_config(root, config))
         if arguments.json_output:
             _print_json(status)
         else:
@@ -257,12 +293,18 @@ def _dispatch(arguments: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
     elif arguments.command == "resume":
-        sys.stdout.write(build_resume(root, config, arguments.max_chars))
+        sys.stdout.write(build_resume(root, _read_config(root, config), arguments.max_chars))
     elif arguments.command == "handoff":
-        sys.stdout.write(build_handoff(root, config, max_chars=arguments.max_chars))
+        if getattr(arguments, "handoff_command", None) == "resolve":
+            resolve_handoff_report(root, arguments.name)
+            print(f"Handoff report resolved: {arguments.name}", file=sys.stderr)
+        else:
+            sys.stdout.write(
+                build_handoff(root, _read_config(root, config), max_chars=arguments.max_chars)
+            )
     elif arguments.command == "doctor":
         _reject_secret_text(arguments.adapter)
-        report = build_doctor(root, config, arguments.adapter)
+        report = build_doctor(root, _read_config(root, config), arguments.adapter)
         if arguments.json_output:
             _print_json(report)
         else:
@@ -285,7 +327,10 @@ def _dispatch_work(arguments: argparse.Namespace) -> int:
     work_command = arguments.work_command
 
     if work_command == "status":
-        report = build_work_status(root, config)
+        status_id = getattr(arguments, "id", None)
+        if status_id is not None and not _WORK_ID.fullmatch(status_id):
+            raise ValidationError("--id must use lowercase letters, digits, and hyphens")
+        report = build_work_status(root, config, status_id, strict_ambiguity=True)
         if report is None:
             print("No active work package found.", file=sys.stderr)
             return EXIT_SUCCESS
@@ -342,9 +387,22 @@ def _dispatch_work(arguments: argparse.Namespace) -> int:
         if work_root.is_dir()
         else []
     )
-    if not candidates:
+    requested_id = getattr(arguments, "id", None)
+    if requested_id is not None:
+        if not _WORK_ID.fullmatch(requested_id):
+            raise ValidationError("--id must use lowercase letters, digits, and hyphens")
+        package_path = work_root / requested_id
+        if not (package_path / "CURRENT.md").is_file():
+            raise ValidationError(f"no work package found with id: {requested_id}")
+    elif not candidates:
         raise ValidationError("No active work package found")
-    package_path = candidates[0]
+    elif len(candidates) > 1:
+        names = ", ".join(sorted(p.name for p in candidates))
+        raise ValidationError(
+            f"multiple work packages found ({names}); pass --id to select one"
+        )
+    else:
+        package_path = candidates[0]
     current_path = package_path / "CURRENT.md"
     evidence_path = package_path / "EVIDENCE.md"
 
@@ -390,7 +448,7 @@ def _dispatch_work(arguments: argparse.Namespace) -> int:
                 "Provide a checkpoint-evidence document with all required sections."
             )
 
-    _work_claim(
+    updated = _work_claim(
         root,
         current_path,
         evidence_path,
@@ -403,11 +461,30 @@ def _dispatch_work(arguments: argparse.Namespace) -> int:
         work_command, work_command
     )
     print(f"Unit {arguments.unit} {label}.", file=sys.stderr)
+
+    if event == "pass" and updated.is_complete():
+        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        try:
+            destination = archive_completed_package(
+                root, updated.work_id, package_path, date_str=date_str
+            )
+        except (ConfigError, OSError) as error:
+            print(f"Package complete but archive move failed: {error}", file=sys.stderr)
+        else:
+            print(f"Package {updated.work_id} complete; archived to {destination}.",
+                  file=sys.stderr)
     return EXIT_SUCCESS
 
 
 def _add_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", default=".", help="project root (default: current directory)")
+
+
+def _add_id(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--id", default=None,
+        help="work package id (required when more than one exists)",
+    )
 
 
 def _add_entry(parser: argparse.ArgumentParser) -> None:
@@ -420,6 +497,21 @@ def _add_entry(parser: argparse.ArgumentParser) -> None:
 
 def _add_max_chars(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-chars", type=int, help="maximum rendered characters")
+
+
+def _read_config(root: Path, config: ProjectConfig) -> ProjectConfig:
+    """Return the active-package config for read commands, degrading gracefully.
+
+    Read commands (status/resume/handoff/doctor) resolve their live checkpoint
+    through the active pointer (R2 D3) so they see the same work-scoped
+    PROGRESS.md the write path targets. Per R2 D4 a read must never crash on a
+    missing or stale pointer: when none resolves, it falls back to the plain
+    configured path rather than raising.
+    """
+    active_id = read_active_work_id(root)
+    if active_id is None:
+        return config
+    return work_scoped_config(config, active_id)
 
 
 def _read_entry(source: str) -> str:

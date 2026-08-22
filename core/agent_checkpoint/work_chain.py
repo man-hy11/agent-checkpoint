@@ -26,11 +26,15 @@ def next_skill(state: WorkState | None) -> str:
         return "checkpoint-brainstorm"
     if not state.units:
         return "checkpoint-plan"
-    if all(unit.state == "passed" for unit in state.units):
+    if all(unit.state in ("passed", "superseded") for unit in state.units) and any(
+        unit.state == "passed" for unit in state.units
+    ):
         return "checkpoint-handoff"
 
     unit = state.unit(state.current_unit) if state.current_unit else None
     if unit is None:
+        return "checkpoint-plan"
+    if unit.state == "passed":
         return "checkpoint-plan"
     if unit.state == "superseded":
         return "checkpoint-plan"

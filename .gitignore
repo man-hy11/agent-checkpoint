@@ -33,9 +33,10 @@ target/
 .scripts/
 .direnv/
 # >>> agent-checkpoint >>>
-PROGRESS.md
-PROGRESS_ARCHIVE.md
+.agent-checkpoint/work/*/PROGRESS.md
+.agent-checkpoint/work/*/PROGRESS_ARCHIVE.md
 .agent-checkpoint.lock
+.agent-checkpoint/work/*/.agent-checkpoint.lock
 # <<< agent-checkpoint <<<
 
 # .docs (local working notes, not for repo)

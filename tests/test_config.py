@@ -170,7 +170,7 @@ class ConfigTests(unittest.TestCase):
             self.assertFalse(second_result.changed)
             self.assertEqual(text.count("# >>> agent-checkpoint >>>"), 1)
             self.assertIn(".venv/\n", text)
-            self.assertIn("PROGRESS_ARCHIVE.md", text)
+            self.assertIn(".agent-checkpoint/work/*/PROGRESS_ARCHIVE.md", text)
 
     def test_ensure_gitignore_replaces_only_its_managed_block(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -196,8 +196,8 @@ class ConfigTests(unittest.TestCase):
                 (project_root / ".gitignore").read_text(encoding="utf-8"),
                 "*.pyc\n"
                 "# >>> agent-checkpoint >>>\n"
-                "state/progress.md\n"
-                "state/archive.md\n"
+                ".agent-checkpoint/work/*/state/progress.md\n"
+                ".agent-checkpoint/work/*/state/archive.md\n"
                 "# <<< agent-checkpoint <<<\n"
                 "!.keep\n",
             )
@@ -219,8 +219,8 @@ class ConfigTests(unittest.TestCase):
                 original
                 +
                 "# >>> agent-checkpoint >>>\n"
-                "PROGRESS.md\n"
-                "PROGRESS_ARCHIVE.md\n"
+                ".agent-checkpoint/work/*/PROGRESS.md\n"
+                ".agent-checkpoint/work/*/PROGRESS_ARCHIVE.md\n"
                 "# <<< agent-checkpoint <<<\n",
             )
 
@@ -246,8 +246,8 @@ class ConfigTests(unittest.TestCase):
                 (project_root / ".gitignore").read_text(encoding="utf-8"),
                 "before-rule\n"
                 "# >>> agent-checkpoint >>>\n"
-                "PROGRESS.md\n"
-                "PROGRESS_ARCHIVE.md\n"
+                ".agent-checkpoint/work/*/PROGRESS.md\n"
+                ".agent-checkpoint/work/*/PROGRESS_ARCHIVE.md\n"
                 "# <<< agent-checkpoint <<<\n"
                 "between-rule\n"
                 "after-rule\n",
@@ -288,14 +288,16 @@ class ConfigTests(unittest.TestCase):
                     archive_path=Path("!PROGRESS_ARCHIVE.md"),
                 ),
             )
+            progress_target = ".agent-checkpoint/work/pkg/#PROGRESS.md"
+            archive_target = ".agent-checkpoint/work/pkg/!PROGRESS_ARCHIVE.md"
             ignored = subprocess.run(
                 [
                     "git",
                     "-C",
                     str(project_root),
                     "check-ignore",
-                    "#PROGRESS.md",
-                    "!PROGRESS_ARCHIVE.md",
+                    progress_target,
+                    archive_target,
                 ],
                 capture_output=True,
                 text=True,
@@ -305,7 +307,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(ignored.returncode, 0, ignored.stderr)
             self.assertEqual(
                 ignored.stdout.splitlines(),
-                ["#PROGRESS.md", "!PROGRESS_ARCHIVE.md"],
+                [progress_target, archive_target],
             )
 
     def test_gitignore_rules_escape_wildmatch_metacharacters_for_real_git(self):
@@ -328,28 +330,33 @@ class ConfigTests(unittest.TestCase):
                     archive_path=Path("star*.md"),
                 ),
             )
+            bracket_target = ".agent-checkpoint/work/pkg/[bracket].md"
+            star_target = ".agent-checkpoint/work/pkg/star*.md"
             literals = subprocess.run(
                 [
                     "git",
                     "-C",
                     str(project_root),
                     "check-ignore",
-                    "[bracket].md",
-                    "star*.md",
+                    bracket_target,
+                    star_target,
                 ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
             overbroad = subprocess.run(
-                ["git", "-C", str(project_root), "check-ignore", "starsecret.md"],
+                [
+                    "git", "-C", str(project_root), "check-ignore",
+                    ".agent-checkpoint/work/pkg/starsecret.md",
+                ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
 
             self.assertEqual(literals.returncode, 0, literals.stderr)
-            self.assertEqual(literals.stdout.splitlines(), ["[bracket].md", "star*.md"])
+            self.assertEqual(literals.stdout.splitlines(), [bracket_target, star_target])
             self.assertEqual(overbroad.returncode, 1, overbroad.stdout)
             self.assertEqual(overbroad.stdout, "")
 

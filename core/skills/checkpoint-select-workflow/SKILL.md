@@ -26,7 +26,7 @@ Once the type is chosen, run:
 agent-checkpoint workflow --type TYPE --id current
 ```
 
-After initialization, read `PROGRESS.md`, then `.agent-checkpoint/work/current/CURRENT.md`, then `CONTINUE_PROMPT.md`. Do not proceed to planning until the package exists.
+After initialization, read the root `CONTINUE_PROMPT.md`, then `.agent-checkpoint/work/current/CURRENT.md`, then `.agent-checkpoint/work/current/CONTINUE_PROMPT.md`. Do not proceed to planning until the package exists.
 
 ## Why this skill and not checkpoint-brainstorm?
 

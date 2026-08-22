@@ -52,7 +52,7 @@ class WorkflowResult:
 - Follow the selected workflow rather than relying on compacted conversation history.
 
 ## 4. Next Actions / TODO
-- Read PROGRESS.md, then {relative}/CURRENT.md, then {relative}/prompts/CONTINUE_PROMPT.md.
+- Read the root CONTINUE_PROMPT.md, then {relative}/CURRENT.md, then {relative}/CONTINUE_PROMPT.md.
 - Execute only the Current Target and update its tracker after verified PASS.
 
 ## 5. Decisions / Constraints / Notes
@@ -108,11 +108,130 @@ def render_final_workflow(project_root: Path, work_type: str, work_id: str) -> R
     return render_final_package(project_root, work_type, work_id)
 
 
-def discard_workflow(result: WorkflowResult) -> None:
-    """Remove a just-created work package after its pointer cannot be persisted."""
+def discard_workflow(result: WorkflowResult, project_root: Path | None = None) -> None:
+    """Remove a just-created work package after some later step in its creation fails.
+
+    ``project_root`` is optional for backward compatibility with call sites
+    that only ever discarded the package directory itself. When given, also
+    clears the active pointer and root ``CONTINUE_PROMPT.md`` if they still
+    name ``result.work_id`` — since the package they point to is being
+    removed, leaving either in place would strand a pointer/root-file pair
+    naming a work id that no longer exists (R4 Task 1's atomic-unit rollback
+    requirement).
+    """
     if result.path.is_symlink() or not result.path.is_dir():
         raise OSError("unable to discard unsafe work package")
+    if project_root is not None:
+        _discard_active_pointer_if_matching(project_root, result.work_id)
     shutil.rmtree(result.path)
+
+
+def archive_completed_package(
+    project_root: Path, work_id: str, package_path: Path, *, date_str: str
+) -> Path:
+    """Atomically relocate a completed package to ``work/archive/<id>-<date>/``.
+
+    Called after a `pass` event leaves the package's ``WorkState`` complete
+    (``WorkState.is_complete()``, chain-v1.md Row 4). ``date_str`` is supplied
+    by the caller rather than read from a clock here, so tests control it
+    (mirrors ``render_entry``'s existing pattern of taking a timestamp as a
+    parameter). Refuses before touching the source directory if the
+    destination already exists, so no partial-move state is ever reachable.
+    After a successful move, clears the active pointer and root
+    ``CONTINUE_PROMPT.md`` if either still names ``work_id`` — the same
+    clear-both-together logic ``discard_workflow`` already uses at
+    creation-time rollback, reused here at completion time instead.
+    """
+    if package_path.is_symlink() or not package_path.is_dir():
+        raise ConfigError("unable to archive an unsafe work package")
+
+    root = Path(project_root).resolve()
+    archive_root = root / ".agent-checkpoint" / "work" / "archive"
+    destination = archive_root / f"{work_id}-{date_str}"
+    if destination.exists() or destination.is_symlink():
+        raise ConfigError(f"archive destination already exists: {destination}")
+
+    archive_root.mkdir(parents=True, exist_ok=True)
+    if destination.exists() or destination.is_symlink():
+        # Re-check after mkdir: a concurrent writer could have raced us here.
+        raise ConfigError(f"archive destination already exists: {destination}")
+
+    os.rename(package_path, destination)
+
+    _discard_active_pointer_if_matching(root, work_id)
+    return destination
+
+
+def _discard_active_pointer_if_matching(project_root: Path, work_id: str) -> None:
+    from .config import _read_raw_active_pointer  # local import avoids an import cycle
+
+    root = Path(project_root).resolve()
+    try:
+        raw_id = _read_raw_active_pointer(root)
+    except ConfigError:
+        return
+    if raw_id != work_id:
+        return
+    pointer_path = root / ".agent-checkpoint" / "active"
+    prompt_path = root / "CONTINUE_PROMPT.md"
+    for path in (pointer_path, prompt_path):
+        try:
+            if not path.is_symlink():
+                path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+_ROOT_STOP_BLOCK = (
+    "Rules:\n\n"
+    "- one invocation = one Step or one Gate;\n"
+    "- preserve the work-type evidence chain and hard rules;\n"
+    "- no unrelated changes;\n"
+    "- update CURRENT.md only after verified PASS;\n"
+    "- FAIL does not advance;\n"
+    "- write completion report and STOP.\n\n"
+    "Advancing Current Target does not authorize beginning it in this invocation.\n"
+)
+
+
+def render_root_continue_prompt(active_id: str) -> str:
+    """Render the repo-root CONTINUE_PROMPT.md naming the active work package.
+
+    Points a session that starts from the root alone at the active package's
+    own CONTINUE_PROMPT.md (R2 D2/D3), and carries the same explicit STOP /
+    one-invocation-per-unit language as the per-package prompt so either entry
+    point gives equivalent guidance.
+    """
+    relative = f".agent-checkpoint/work/{active_id}"
+    return (
+        f"# Continue: {active_id}\n\n"
+        f"Active work package: `{relative}`.\n\n"
+        f"1. Read `{relative}/CURRENT.md` for the authoritative work-state block.\n"
+        f"2. Read `{relative}/RULES.md` for this package's hard rules, evidence "
+        "requirements, and unit ID scheme.\n"
+        f"3. Read `{relative}/PLAN.md` for the approved unit graph.\n"
+        f"4. Then read `{relative}/CONTINUE_PROMPT.md` and act only on the "
+        "current unit it names.\n\n"
+        f"{_ROOT_STOP_BLOCK}"
+    )
+
+
+def write_root_continue_prompt(project_root: Path, active_id: str) -> None:
+    """Atomically (re)write the repo-root CONTINUE_PROMPT.md for ``active_id``.
+
+    The root file is always fully regenerated, never hand-edited or partially
+    patched — it is a derived pointer, kept in sync with the active-pointer
+    write (R2 D2) so the two can never observably drift apart. Reuses
+    ``storage``'s atomic-write primitive and ``config``'s symlink rejection,
+    mirroring ``config.write_active_work_id``'s reuse pattern exactly.
+    """
+    from .config import _reject_symlink  # local import avoids an import cycle
+    from .storage import _atomic_write  # local import avoids an import cycle
+
+    root = Path(project_root).resolve()
+    prompt_path = root / "CONTINUE_PROMPT.md"
+    _reject_symlink(prompt_path, "root CONTINUE_PROMPT.md")
+    _atomic_write(root, prompt_path, render_root_continue_prompt(active_id))
 
 
 def _reject_symlinked_path(root: Path, relative: Path) -> None:
