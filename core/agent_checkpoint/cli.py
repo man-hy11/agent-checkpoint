@@ -19,6 +19,7 @@ from .config import (
     write_active_work_id,
 )
 from .diagnostics import build_doctor, build_handoff, build_resume, build_status, build_work_status
+from .git_commit import commit_work_package
 from .handoff import resolve_handoff_report
 from .progress import contains_diff_content, validate_entry
 from .secrets import find_secret_kind
@@ -299,9 +300,11 @@ def _dispatch(arguments: argparse.Namespace) -> int:
             resolve_handoff_report(root, arguments.name)
             print(f"Handoff report resolved: {arguments.name}", file=sys.stderr)
         else:
+            resolved_config = _read_config(root, config)
             sys.stdout.write(
-                build_handoff(root, _read_config(root, config), max_chars=arguments.max_chars)
+                build_handoff(root, resolved_config, max_chars=arguments.max_chars)
             )
+            _auto_commit_on_handoff(root, resolved_config)
     elif arguments.command == "doctor":
         _reject_secret_text(arguments.adapter)
         report = build_doctor(root, _read_config(root, config), arguments.adapter)
@@ -512,6 +515,27 @@ def _read_config(root: Path, config: ProjectConfig) -> ProjectConfig:
     if active_id is None:
         return config
     return work_scoped_config(config, active_id)
+
+
+def _auto_commit_on_handoff(root: Path, config: ProjectConfig) -> None:
+    """Commit the working tree after handoff, when the project opted in.
+
+    Soft-fails by design: `commit_work_package` never raises, and this
+    helper reports the outcome to stderr without affecting the handoff
+    command's exit status. Silently does nothing when no active work
+    package can be resolved (nothing to name the commit after) or auto
+    commit is disabled.
+    """
+    if not config.auto_commit_on_handoff:
+        return
+    work_status = build_work_status(root, config)
+    if work_status is None:
+        return
+    result = commit_work_package(root, config, work_status["work_id"], work_status["work_type"])
+    if result.committed:
+        print(f"Auto-committed handoff: {result.commit_sha}", file=sys.stderr)
+    else:
+        print(f"Auto-commit skipped: {result.reason}", file=sys.stderr)
 
 
 def _read_entry(source: str) -> str:

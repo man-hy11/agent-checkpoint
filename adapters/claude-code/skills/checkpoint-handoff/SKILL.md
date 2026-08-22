@@ -17,6 +17,8 @@ The handoff renders a bounded summary of completed work, verification results, a
 
 The rendered output includes an "Open Handoff Reports" section listing any files under `.agent-checkpoint/handoff/` — these are deferred items a prior step wrote instead of folding into its own scope. Surface them explicitly to the next session; do not let them go unmentioned just because they rendered automatically.
 
+If the project's `.agent-checkpoint.toml` sets `auto_commit_on_handoff = true`, the command also stages and commits the working tree after rendering the handoff -- this is opt-in and off by default. A commit failure (nothing to commit, no Git repository, a rejecting pre-commit hook) is reported to stderr and never blocks handoff from completing; check stderr if you need to know whether it happened.
+
 ## Ask about each open report
 
 For every report in that section besides the one for this work package, ask the user whether to act on it now or leave it open:

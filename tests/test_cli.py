@@ -50,6 +50,38 @@ def _scoped_progress(project_root: Path, work_id: str = "current") -> Path:
     return project_root / ".agent-checkpoint" / "work" / work_id / "PROGRESS.md"
 
 
+def _make_work_package_with_all_units_passed(
+    project_root: Path, work_id: str = "current"
+) -> Path:
+    """Create a work package whose sole unit is ``passed`` -- a completed package."""
+    pkg = project_root / ".agent-checkpoint" / "work" / work_id
+    pkg.mkdir(parents=True)
+    state_json = f"""{{
+  "schema_version": 1,
+  "work_id": "{work_id}",
+  "work_type": "feature",
+  "plan_revision": 1,
+  "brief_confirmed": true,
+  "current_unit": "U1",
+  "max_attempts": 3,
+  "attempt_override": null,
+  "units": [{{"id": "U1", "group": null, "kind": "step", "state": "passed", "attempt": 1}}],
+  "attempts": []
+}}"""
+    current_text = (
+        "# CURRENT.md\n\n"
+        "<!-- agent-checkpoint:state v1 -->\n"
+        + state_json
+        + "\n<!-- /agent-checkpoint:state -->\n"
+    )
+    (pkg / "CURRENT.md").write_text(current_text, encoding="utf-8")
+    (pkg / "EVIDENCE.md").write_text("# Evidence\n", encoding="utf-8")
+    (project_root / ".agent-checkpoint" / "active").write_text(
+        work_id + "\n", encoding="utf-8"
+    )
+    return pkg
+
+
 class CliTests(unittest.TestCase):
     def test_help_lists_all_public_subcommands(self):
         """Catches a public command being omitted from the stable parser."""
@@ -395,6 +427,68 @@ class CliTests(unittest.TestCase):
             )
 
             self.assertEqual(resolve.returncode, 2, resolve.stderr)
+
+    def test_handoff_auto_commits_when_opted_in(self):
+        """Catches the opt-in auto-commit flag failing to reach the CLI handoff path."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            subprocess.run(
+                ["git", "init", "-q"], cwd=project_root, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "tests@example.invalid"],
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Checkpoint Tests"],
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+            )
+            (project_root / "README.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "README.md"], cwd=project_root, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "-qm", "fixture"],
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+            )
+            (project_root / ".agent-checkpoint.toml").write_text(
+                "auto_commit_on_handoff = true\n", encoding="utf-8"
+            )
+            _make_work_package_with_all_units_passed(project_root)
+            (project_root / "work.txt").write_text("changed", encoding="utf-8")
+
+            handoff = run_cli("handoff", "--root", str(project_root))
+
+            self.assertEqual(handoff.returncode, 0, handoff.stderr)
+            self.assertIn("Auto-committed handoff", handoff.stderr)
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(status.stdout, "")
+
+    def test_handoff_skips_auto_commit_by_default(self):
+        """Catches auto-commit running without an explicit opt-in."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            subprocess.run(
+                ["git", "init", "-q"], cwd=project_root, check=True, capture_output=True
+            )
+            (project_root / "work.txt").write_text("changed", encoding="utf-8")
+
+            handoff = run_cli("handoff", "--root", str(project_root))
+
+            self.assertEqual(handoff.returncode, 0, handoff.stderr)
+            self.assertEqual(handoff.stderr, "")
 
     def test_invalid_input_and_config_exit_two_without_json_stdout(self):
         """Catches invalid user/configuration data escaping the code-2 boundary."""

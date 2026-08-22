@@ -32,6 +32,7 @@ _ALLOWED_FIELDS = {
     "resume_max_chars",
     "lock_timeout_seconds",
     "include_git_hints",
+    "auto_commit_on_handoff",
 }
 _RESERVED_COMPONENTS = {
     ".agent-checkpoint.lock",
@@ -64,6 +65,7 @@ class ProjectConfig:
     resume_max_chars: int = 6_000
     lock_timeout_seconds: float = 10.0
     include_git_hints: bool = True
+    auto_commit_on_handoff: bool = False
 
     def __post_init__(self) -> None:
         _validate_language(self.language)
@@ -114,6 +116,9 @@ def load_config(project_root: Path) -> ProjectConfig:
         ),
         "include_git_hints": _boolean_value(
             raw_config, "include_git_hints", defaults.include_git_hints
+        ),
+        "auto_commit_on_handoff": _boolean_value(
+            raw_config, "auto_commit_on_handoff", defaults.auto_commit_on_handoff
         ),
     }
     if values["max_live_chars"] < 1000:

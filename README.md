@@ -365,6 +365,7 @@ max_live_chars = 12000
 resume_max_chars = 6000
 lock_timeout_seconds = 10.0
 include_git_hints = true
+auto_commit_on_handoff = false
 ```
 
 `max_live_chars` controls live-file rotation, `resume_max_chars` bounds default
@@ -374,6 +375,14 @@ waiting. `language` is rendered as a resume/handoff instruction.
 worktree, and changed-filename hints; `doctor` still inspects Git safety state
 when hints are disabled. Checkpoint content and diagnostics reject probable
 credentials and never store a Git diff.
+
+`auto_commit_on_handoff` (default `false`) stages and commits the working
+tree at the end of `agent-checkpoint handoff`, once every unit in the work
+package has passed. It treats the tree's full dirty state at handoff time as
+the package's footprint — there is no per-unit file scoping. It never raises:
+no Git repository, a clean tree, or a failing `git commit` (e.g. a rejecting
+pre-commit hook) all resolve to a skip reported on stderr, and handoff still
+completes.
 
 ## Development
 

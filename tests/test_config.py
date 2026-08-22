@@ -26,6 +26,19 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.max_live_chars, 4000)
             self.assertFalse(config.include_git_hints)
             self.assertEqual(config.progress_path, Path("PROGRESS.md"))
+            self.assertFalse(config.auto_commit_on_handoff)
+
+    def test_load_config_reads_auto_commit_on_handoff(self):
+        """Catches the opt-in commit flag being dropped from the allowed field set."""
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            (project_root / ".agent-checkpoint.toml").write_text(
+                "auto_commit_on_handoff = true\n", encoding="utf-8"
+            )
+
+            config = load_config(project_root)
+
+            self.assertTrue(config.auto_commit_on_handoff)
 
     def test_load_config_rejects_incorrect_field_types(self):
         with tempfile.TemporaryDirectory() as directory:
