@@ -1,0 +1,14 @@
+{
+  "name": "agent-checkpoint",
+  "owner": {
+    "name": "h_y_p",
+    "email": "rodlfmaro@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "agent-checkpoint",
+      "source": ".",
+      "description": "Portable project checkpoints with automatic pre-compaction and session-resume support."
+    }
+  ]
+}

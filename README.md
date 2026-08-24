@@ -88,9 +88,10 @@ agent-checkpoint --help
 npx --yes agent-checkpoint --help
 ```
 
-Installing the package also runs a `postinstall` step that places the generic
-skill at `~/.agent/skills/checkpoint` and links it into any global skill
-directories it can detect, unless a skill is already installed there.
+This installs **only the CLI** — it has no `postinstall` step and never
+writes outside `node_modules`/your npm global prefix, so it never triggers an
+npm `allow-scripts` warning. Install the skill separately with whichever of
+the two paths below fits your agent.
 
 Publishing is deliberately separate from this repository change: use your
 approved npm account and package name before relying on the registry form. To
@@ -103,7 +104,32 @@ npm install -g /absolute/path/to/agent-checkpoint
 The wrapper uses `python3` by default. Set `AGENT_CHECKPOINT_PYTHON` to select
 another Python 3.11+ executable.
 
-### npx skills add
+## Install the skill
+
+### Claude Code plugin (recommended for Claude Code)
+
+`adapters/claude-code/` is itself a Claude Code plugin marketplace
+(`adapters/claude-code/.claude-plugin/marketplace.json`), so Claude Code can
+install its skills, commands, and hooks together with no separate npm step.
+Point the marketplace add at that subdirectory, not the repository root:
+
+```bash
+# From a local checkout
+claude plugin marketplace add /absolute/path/to/agent-checkpoint/adapters/claude-code
+claude plugin install agent-checkpoint@agent-checkpoint
+
+# Or from inside a Claude Code session
+/plugin marketplace add /absolute/path/to/agent-checkpoint/adapters/claude-code
+/plugin install agent-checkpoint@agent-checkpoint
+```
+
+This is the only install path that also gives you the Claude Code adapter's
+`PreCompact`/`SessionStart` hooks and `/checkpoint`, `/resume`, `/handoff`
+commands, not just the raw `SKILL.md` files. It still doesn't install the
+`agent-checkpoint` CLI itself — install that with npm as described above so
+the commands the skills reference are on `PATH`.
+
+### npx skills add (Claude Code, Codex, OpenCode, and other `skills`-CLI agents)
 
 The skill package also installs with the community
 [`skills`](https://www.npmjs.com/package/skills) CLI, which clones this
@@ -119,9 +145,26 @@ npx skills add https://github.com/man-hy11/agent-checkpoint --full-depth --all
 npx skills add https://github.com/man-hy11/agent-checkpoint --full-depth --skill checkpoint
 ```
 
-This installs the skill definitions only; it does not install the
-`agent-checkpoint` CLI. Install the CLI with npm as described above so the
-commands referenced by the skills are on `PATH`.
+This installs the skill definitions only (no hooks, no commands); it does not
+install the `agent-checkpoint` CLI. Install the CLI with npm as described
+above so the commands referenced by the skills are on `PATH`.
+
+### Manual / scripted install (any detected agent directory)
+
+The npm package still ships the same linking logic the old `postinstall` step
+used to run automatically — it's just no longer wired to npm's install
+lifecycle. Run it yourself when you want `~/.agent/skills/` plus symlinks into
+whichever of `~/.claude`, `~/.codex`, `~/.config/opencode` it detects on the
+machine:
+
+```bash
+npm install -g agent-checkpoint      # CLI first
+cd "$(npm root -g)/agent-checkpoint" # or a local checkout
+npm run install-skill
+
+# equivalent, once the CLI is on PATH:
+agent-checkpoint skill-install --global --agent claude-code --agent codex --agent opencode
+```
 
 ## Where things get installed
 
@@ -139,16 +182,17 @@ controls.
 
 ### The skill files (`SKILL.md`)
 
-Two different tools manage skill files, and they use two different canonical
-directories:
+Three different install paths manage skill files, and they use different
+canonical directories:
 
 | Installer | Canonical (real files) | Naming |
 |---|---|---|
-| `agent-checkpoint skill-install` (also run by npm's `postinstall`) | `~/.agent/skills/` | singular `.agent` |
+| Claude Code plugin (`/plugin install`) | `~/.claude/plugins/cache/...` | managed entirely by Claude Code; not a bare `SKILL.md` directory |
+| `agent-checkpoint skill-install` (via `npm run install-skill`) | `~/.agent/skills/` | singular `.agent` |
 | `npx skills add ... -g` (the community `skills` CLI) | `~/.agents/skills/` | plural `.agents` |
 
-Only one of these two directories holds the actual files for a given install;
-the other tool never writes to it. Whichever one is canonical, every
+For the latter two, only one directory holds the actual files for a given
+install; the other tool never writes to it. Whichever one is canonical, every
 supported coding agent gets a symlink pointing back to it — the agent itself
 never stores its own copy:
 
@@ -169,13 +213,13 @@ installer links anything for it; it needs the native extension built by
 ### Practical effect
 
 Because the CLI and the skills install independently, running only one half
-leaves the other missing. Installing the CLI without also running
-`skill-install` (or `npx skills add`) means no coding agent can discover the
-skill; installing the skill without the CLI means the skill's `SKILL.md`
-instructions reference an `agent-checkpoint` command that is not on `PATH`.
-`npm install -g agent-checkpoint` handles both automatically via its
-`postinstall` step; the other install paths require running each step
-yourself.
+leaves the other missing. Installing the CLI without also installing the
+skill (via the Claude Code plugin, `npx skills add`, or `npm run
+install-skill`) means no coding agent can discover the skill; installing the
+skill without the CLI means the skill's `SKILL.md` instructions reference an
+`agent-checkpoint` command that is not on `PATH`. No single command does both
+automatically anymore — run the CLI install and one of the three skill-install
+paths above.
 
 ## Initialize a project
 

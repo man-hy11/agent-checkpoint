@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 "use strict";
 
-// npm postinstall hook: install the generic skill to ~/.agent/skills/checkpoint
-// unless it already exists. Mirrors agent-checkpoint skill-install --global
-// without invoking the Python wrapper, which may not be on PATH during install.
+// Manual skill-install helper: installs the generic skill to
+// ~/.agent/skills/checkpoint unless it already exists. Mirrors
+// agent-checkpoint skill-install --global without invoking the Python
+// wrapper, which may not be on PATH during install.
 //
-// It also links the canonical skill into whichever supported agent directories
-// are already present on this machine (~/.claude, ~/.codex, ~/.config/opencode),
-// so a plain `npm install -g agent-checkpoint` is enough for those agents to
-// see the skill without a separate manual `skill-install --agent ...` step.
+// It also links the canonical skill into whichever supported agent
+// directories are already present on this machine (~/.claude, ~/.codex,
+// ~/.config/opencode).
+//
+// This is NOT wired to npm's postinstall lifecycle -- `npm install -g
+// agent-checkpoint` only installs the CLI. Run this explicitly when you also
+// want the skill links:
+//
+//   npm run install-skill
+//
+// (or, once the CLI is on PATH: agent-checkpoint skill-install --global).
+// Prefer installing the skill itself via a Claude Code plugin or
+// `npx skills add` instead -- see README.md.
 
 const fs = require("node:fs");
 const os = require("node:os");

@@ -93,17 +93,23 @@ class NpmPackageTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("skill-install", result.stdout)
 
-    def test_package_declares_postinstall_skill_install(self):
-        """Catches npm installs that do not auto-link the global skill directory."""
+    def test_package_declares_install_skill_script_but_not_postinstall(self):
+        """Catches a regression to an npm lifecycle hook (postinstall/preinstall/
+        install) that would make npm install -g run arbitrary code and print
+        an allow-scripts warning. Skill linking must stay an opt-in script the
+        user runs by name."""
         package = json.loads((PROJECT_ROOT / "package.json").read_text(encoding="utf-8"))
         scripts = package.get("scripts", {})
-        self.assertIn("postinstall", scripts, "package.json missing scripts.postinstall")
-        self.assertIn("postinstall-skill-install.cjs", scripts["postinstall"])
+        self.assertNotIn("postinstall", scripts, "package.json must not declare scripts.postinstall")
+        self.assertNotIn("preinstall", scripts, "package.json must not declare scripts.preinstall")
+        self.assertNotIn("install", scripts, "package.json must not declare scripts.install")
+        self.assertIn("install-skill", scripts, "package.json missing scripts.install-skill")
+        self.assertIn("postinstall-skill-install.cjs", scripts["install-skill"])
         files = package.get("files", [])
         self.assertIn("bin/postinstall-skill-install.cjs", files)
 
-    def test_postinstall_skill_install_handles_existing_skill(self):
-        """Catches postinstall that fails when ~/.agent/skills/checkpoint already exists."""
+    def test_skill_install_script_handles_existing_skill(self):
+        """Catches the skill-install helper failing when ~/.agent/skills/checkpoint already exists."""
         import os
         with tempfile.TemporaryDirectory() as fake_home:
             skill_path = Path(fake_home) / ".agent" / "skills" / "checkpoint"
