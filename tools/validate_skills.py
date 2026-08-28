@@ -19,6 +19,7 @@ EXPECTED_SKILLS = (
     "checkpoint-inspect",
     "checkpoint-plan",
     "checkpoint-recover",
+    "checkpoint-save",
     "checkpoint-select-workflow",
     "checkpoint-verify-gate",
 )
