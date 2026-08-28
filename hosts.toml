@@ -29,7 +29,7 @@ ships_skills = true
 
 [hosts.claude-code.commands]
 format = "md"
-names = ["checkpoint", "resume", "handoff"]
+names = ["checkpoint-save", "resume", "handoff"]
 
 [hosts.claude-code.manifests]
 ".claude-plugin/plugin.json" = "claude_plugin"
@@ -89,7 +89,7 @@ ships_skills = true
 
 [hosts.opencode.commands]
 format = "md"
-names = ["checkpoint", "resume", "handoff"]
+names = ["checkpoint-save", "resume", "handoff"]
 
 # Deliberately absent: [hosts.opencode.manifests] and [hosts.opencode.hooks].
 # opencode ships no install manifest of any kind.
@@ -106,7 +106,7 @@ ships_skills = false
 
 [hosts.gemini-cli.commands]
 format = "toml"
-names = ["checkpoint", "resume", "handoff"]
+names = ["checkpoint-save", "resume", "handoff"]
 
 [hosts.gemini-cli.manifests]
 "gemini-extension.json" = "gemini_extension"

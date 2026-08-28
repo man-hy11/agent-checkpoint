@@ -1,0 +1,32 @@
+description = "Save a concise, resumable checkpoint for the current project."
+prompt = """
+Create a concise checkpoint entry from the current work using these exact headings:
+
+## 2. Progress
+## 5. Decisions / Constraints / Notes
+
+When a work package's `CURRENT.md` exists, do not restate its Goal/Plan or
+Current Focus in the checkpoint entry — `CURRENT.md` is that information's
+only source. Record only what changed this session.
+
+If no work package exists yet, this session did substantive work without
+ever running `agent-checkpoint workflow`. Recommend a workflow type from
+the session's actual work and wait for confirmation, then run:
+
+agent-checkpoint workflow --type TYPE --id current
+
+Backfill `.agent-checkpoint/work/current/BRIEF.md` and
+`PROJECT_CONTEXT.md` from what already happened (do not invent unanswered
+fields), set `brief_confirmed: true`, and only draft a plan by handing
+off to the checkpoint-plan skill if planning already reads as done,
+confirmed with the user.
+
+Exclude credentials and diff content. Pass the completed entry on standard input to:
+
+agent-checkpoint write --entry -
+
+Add each concrete test/build result with a repeated `--verification TEXT`
+option. Use `--root PATH` when the project root is not the current directory.
+Report the result briefly, and do not claim the checkpoint was saved if the
+command fails.
+"""
