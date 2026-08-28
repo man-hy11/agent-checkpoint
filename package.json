@@ -3,21 +3,7 @@
   "version": "0.0.5",
   "description": "Portable checkpoint workflows for coding agents",
   "license": "MIT",
-  "bin": {
-    "agent-checkpoint": "bin/agent-checkpoint.cjs"
-  },
-  "scripts": {
-    "install-skill": "node bin/postinstall-skill-install.cjs"
-  },
-  "files": [
-    "bin/agent-checkpoint.cjs",
-    "bin/postinstall-skill-install.cjs",
-    "bin/agent-checkpoint",
-    "agent_checkpoint/*.py",
-    "agent_checkpoint/assets",
-    "skills",
-    "README.md"
-  ],
+  "private": true,
   "engines": {
     "node": ">=18"
   }
