@@ -113,13 +113,64 @@ def parse_state(text: str) -> WorkState:
 
 
 def render_state(text: str, state: WorkState) -> str:
-    """Replace the state block in text, preserving every surrounding character."""
+    """Replace the state block in text, then resync the tracker's prose.
+
+    The state block is machine-read; the "Current Target" heading and the step
+    checkboxes below it are what a person reads after a compaction. They are two
+    halves of one file and must not disagree, so both are written together here
+    rather than left to the agent.
+    """
     body = json.dumps(_to_payload(state), indent=2, sort_keys=True)
     replacement = f"{BLOCK_BEGIN}\n{body}\n{BLOCK_END}"
     rendered, count = _BLOCK.subn(lambda _: replacement, text, count=1)
     if count != 1:
         raise StateError("CURRENT.md must contain exactly one state block")
-    return rendered
+    return _render_tracker_prose(rendered, state)
+
+
+# `- [x] R2 Unwrap core/ (step)` -> marker, id, and the title that follows it.
+_STEP_LINE = re.compile(r"(?m)^- \[(?P<marker>.)\] (?P<id>\S+)(?P<rest>.*)$")
+
+_STATE_MARKERS = {
+    "passed": "x",
+    "superseded": "x",   # terminal and resolved, like passed
+    "running": "-",
+    "blocked": "!",
+}
+
+
+def _render_tracker_prose(text: str, state: WorkState) -> str:
+    """Resync the Current Target heading and step checkboxes with the state block.
+
+    Both are rewritten from the step list already in the file, so unit titles
+    survive without being duplicated into the state block. A tracker whose prose
+    does not follow the documented shape is left alone rather than guessed at.
+    """
+    titles: dict[str, str] = {}
+
+    def _remark(match: re.Match[str]) -> str:
+        unit = state.unit(match.group("id"))
+        if unit is None:
+            return match.group(0)
+        titles[unit.id] = match.group("rest").strip()
+        marker = _STATE_MARKERS.get(unit.state, " ")
+        return f"- [{marker}] {unit.id}{match.group('rest')}"
+
+    rendered = _STEP_LINE.sub(_remark, text)
+
+    current = state.unit(state.current_unit) if state.current_unit else None
+    if current is None or current.id not in titles:
+        return rendered
+    title = titles[current.id].removesuffix(f"({current.kind})").strip()
+    heading = f"**{current.id} — {title}**" if title else f"**{current.id}**"
+    # Anchored to the "## Current Target" heading rather than to the first bold
+    # line in the file, so a tracker with bold text elsewhere is not rewritten.
+    return re.sub(
+        r"(?ms)(^## Current Target\s*\n\n)\*\*.+?\*\*",
+        lambda match: match.group(1) + heading,
+        rendered,
+        count=1,
+    )
 
 
 def apply_event(
@@ -139,7 +190,31 @@ def apply_event(
     attempt = unit.attempt + 1 if event == "start" else unit.attempt
     updated = replace(unit, state=target, attempt=attempt)
     units = tuple(updated if item.id == unit_id else item for item in state.units)
+    if event == "pass":
+        return replace(state, units=units, current_unit=_next_unit(units, state.current_unit))
     return replace(state, units=units)
+
+
+def _next_unit(units: tuple[Unit, ...], current: str | None) -> str | None:
+    """Return the unit the tracker should point at once one has passed.
+
+    Only ``pass`` advances: ``fail`` must leave the pointer on the unit that
+    still needs recovery, and ``start`` must not move it either, since a unit is
+    started only after the pointer already names it. That split is the contract
+    generated packages already state — "update CURRENT.md only after verified
+    PASS", "FAIL does not advance", and "Advancing Current Target does not
+    authorize beginning it in this invocation" (``work_renderer``).
+
+    The next unit is the first in declaration order that is neither ``passed``
+    nor ``superseded`` — both are terminal, so neither can be returned to. When
+    every unit is resolved the pointer is left alone: chain-v1 Row 4 precedes
+    the current-unit rows, so a finished package routes to checkpoint-handoff
+    regardless of what current_unit still names.
+    """
+    for unit in units:
+        if unit.state not in ("passed", "superseded"):
+            return unit.id
+    return current
 
 
 def _build(payload: dict) -> WorkState:
