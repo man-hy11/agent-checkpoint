@@ -217,6 +217,24 @@ def _project_skills(profile: dict[str, Any], staging: Path) -> None:
         destination.write_text(
             _render_skill(source.read_text(encoding="utf-8")), encoding="utf-8"
         )
+    _project_shared_contract(target)
+
+
+def _project_shared_contract(target: Path) -> None:
+    """Copy the shared routing contract the router SKILL.md points at.
+
+    ``_checkpoint-shared/`` is skipped by the loop above (underscore prefix,
+    and it holds no SKILL.md), but every bundled router refers readers to
+    ``_checkpoint-shared/chain-v1.md`` for the full routing table. It is
+    copied verbatim: it is a contract document, not a skill, so it carries no
+    skill frontmatter for ``_render_skill`` to rewrite.
+    """
+    source = _SKILLS_ROOT / "_checkpoint-shared" / "chain-v1.md"
+    if not source.is_file():
+        raise BuildError("Missing canonical skills/_checkpoint-shared/chain-v1.md")
+    destination = target / "_checkpoint-shared" / "chain-v1.md"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source.read_bytes())
 
 
 def _project_commands(profile: dict[str, Any], host: str, staging: Path) -> None:

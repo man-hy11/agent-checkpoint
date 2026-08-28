@@ -15,6 +15,10 @@ from typing import Sequence
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _CORE_SKILLS_DIR = _PROJECT_ROOT / "skills"
 
+# Not a skill: the routing contract the bundled router points readers at.
+_SHARED_CONTRACT_DIR = "_checkpoint-shared"
+_SHARED_CONTRACT_FILE = "chain-v1.md"
+
 _LAUNCHER_PATH = Path("bin") / "agent-checkpoint"
 _CORE_MODULES = (
     "__init__.py",
@@ -176,11 +180,36 @@ def _validate_skill_manifest(bundle: Path) -> list[str]:
         for entry in sorted(skills_dir.iterdir()):
             if entry.name in declared:
                 continue
+            if entry.name == _SHARED_CONTRACT_DIR:
+                errors.extend(_validate_shared_contract(bundle))
+                continue
             if entry.is_dir():
                 errors.append(f"undeclared skill directory: skills/{entry.name}")
             else:
                 errors.append(f"unexpected file in skills/: skills/{entry.name}")
 
+    return errors
+
+
+def _validate_shared_contract(bundle: Path) -> list[str]:
+    """Check the shared routing contract every bundled router points at.
+
+    ``_checkpoint-shared/`` is not a skill — it holds no SKILL.md — but the
+    router refers readers to ``_checkpoint-shared/chain-v1.md``, so a
+    skill-shipping bundle must carry it or that reference dangles.
+    """
+    shared_dir = bundle / "skills" / _SHARED_CONTRACT_DIR
+    if shared_dir.is_symlink():
+        errors = [f"symlinked skill directory: skills/{_SHARED_CONTRACT_DIR}"]
+        return errors
+    contract = Path("skills") / _SHARED_CONTRACT_DIR / _SHARED_CONTRACT_FILE
+    error = _required_regular_file(bundle, contract, f"missing contract: {contract}")
+    errors = [error] if error else []
+    for entry in sorted(shared_dir.iterdir()):
+        if entry.name != _SHARED_CONTRACT_FILE:
+            errors.append(
+                f"unexpected file in skills/{_SHARED_CONTRACT_DIR}/: {entry.name}"
+            )
     return errors
 
 

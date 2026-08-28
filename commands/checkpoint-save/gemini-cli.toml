@@ -17,9 +17,8 @@ agent-checkpoint workflow --type TYPE --id current
 
 Backfill `.agent-checkpoint/work/current/BRIEF.md` and
 `PROJECT_CONTEXT.md` from what already happened (do not invent unanswered
-fields), set `brief_confirmed: true`, and only draft a plan by handing
-off to the checkpoint-plan skill if planning already reads as done,
-confirmed with the user.
+fields), and set `brief_confirmed: true`. Do not draft `PLAN.md` here; say
+that planning is the next step and leave it to the user.
 
 Exclude credentials and diff content. Pass the completed entry on standard input to:
 

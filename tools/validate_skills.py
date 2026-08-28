@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the twelve-skill progressive-disclosure suite structure.
+"""Validate the thirteen-skill progressive-disclosure suite structure.
 
 Usage:
     python3 tools/validate_skills.py skills

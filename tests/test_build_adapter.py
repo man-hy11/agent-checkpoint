@@ -10,6 +10,7 @@ from unittest import mock
 
 from tests.helpers import PROJECT_ROOT
 from tools import build_adapter
+from tools.validate_skills import EXPECTED_SKILLS
 
 
 def run_tool(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -306,63 +307,62 @@ def _dotdot_symlinked_output(root: Path) -> tuple[Path, Path, Path]:
     return output, linked_parent / ".." / "target-parent" / "bundle", sentinel
 
 
-class TwelveSkillBuildTests(unittest.TestCase):
-    def test_build_codex_bundle_installs_all_twelve_skills(self):
-        """Catches build_adapter omitting skills beyond the router."""
-        skill_names = (
-            "checkpoint",
-            "checkpoint-brainstorm",
-            "checkpoint-claim",
-            "checkpoint-diagnose",
-            "checkpoint-evidence",
-            "checkpoint-execute",
-            "checkpoint-handoff",
-            "checkpoint-inspect",
-            "checkpoint-plan",
-            "checkpoint-recover",
-            "checkpoint-select-workflow",
-            "checkpoint-verify-gate",
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "codex"
+class SkillSuiteBuildTests(unittest.TestCase):
+    """Every skill-shipping host must receive the whole canonical suite.
 
-            result = run_tool("tools/build_adapter.py", "codex", "--output", str(output))
+    The expected names are imported rather than restated: a local copy of the
+    list silently skipped checkpoint-save when it was added, so these tests
+    claimed to cover "all skills" while missing one.
+    """
+
+    def _assert_bundle_ships_every_skill(self, host: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / host
+
+            result = run_tool("tools/build_adapter.py", host, "--output", str(output))
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            for name in skill_names:
+            for name in EXPECTED_SKILLS:
                 self.assertTrue(
                     (output / "skills" / name / "SKILL.md").is_file(),
                     f"missing skill: {name}",
                 )
 
-    def test_build_opencode_bundle_installs_all_twelve_skills(self):
+    def test_build_codex_bundle_installs_every_skill(self):
+        """Catches build_adapter omitting skills beyond the router."""
+        self._assert_bundle_ships_every_skill("codex")
+
+    def test_build_opencode_bundle_installs_every_skill(self):
         """Catches build_adapter omitting skills from the OpenCode bundle."""
-        skill_names = (
-            "checkpoint",
-            "checkpoint-brainstorm",
-            "checkpoint-claim",
-            "checkpoint-diagnose",
-            "checkpoint-evidence",
-            "checkpoint-execute",
-            "checkpoint-handoff",
-            "checkpoint-inspect",
-            "checkpoint-plan",
-            "checkpoint-recover",
-            "checkpoint-select-workflow",
-            "checkpoint-verify-gate",
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "opencode"
+        self._assert_bundle_ships_every_skill("opencode")
 
-            result = run_tool(
-                "tools/build_adapter.py", "opencode", "--output", str(output)
-            )
+    def test_build_claude_code_bundle_installs_every_skill(self):
+        """Catches build_adapter omitting skills from the Claude Code bundle."""
+        self._assert_bundle_ships_every_skill("claude-code")
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            for name in skill_names:
-                self.assertTrue(
-                    (output / "skills" / name / "SKILL.md").is_file(),
-                    f"missing skill: {name}",
+    def test_skill_shipping_bundles_include_shared_routing_contract(self):
+        """Catches the router's chain-v1.md reference dangling in a bundle."""
+        canonical = (
+            Path(__file__).resolve().parents[1]
+            / "skills"
+            / "_checkpoint-shared"
+            / "chain-v1.md"
+        ).read_bytes()
+        for host in ("claude-code", "codex", "opencode"):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / host
+
+                result = run_tool(
+                    "tools/build_adapter.py", host, "--output", str(output)
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                shipped = output / "skills" / "_checkpoint-shared" / "chain-v1.md"
+                self.assertTrue(shipped.is_file(), f"{host} bundle omits chain-v1.md")
+                self.assertEqual(
+                    shipped.read_bytes(),
+                    canonical,
+                    f"{host} bundle's chain-v1.md diverges from the canonical source",
                 )
 
 
