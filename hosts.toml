@@ -30,10 +30,6 @@ ships_skills = true
 [hosts.claude-code.commands]
 format = "md"
 names = ["checkpoint", "resume", "handoff"]
-# claude-code commands carry no recovery guidance: no npm reinstall hint and
-# no `doctor --adapter` block. Both are opencode-only.
-npm_hint = false
-doctor_adapter = false
 
 [hosts.claude-code.manifests]
 ".claude-plugin/plugin.json" = "claude_plugin"
@@ -94,11 +90,6 @@ ships_skills = true
 [hosts.opencode.commands]
 format = "md"
 names = ["checkpoint", "resume", "handoff"]
-# opencode is the only host whose commands carry recovery guidance.
-npm_hint = true
-npm_package = "agent-checkpoint"
-doctor_adapter = true
-doctor_adapter_name = "opencode"
 
 # Deliberately absent: [hosts.opencode.manifests] and [hosts.opencode.hooks].
 # opencode ships no install manifest of any kind.
@@ -116,8 +107,6 @@ ships_skills = false
 [hosts.gemini-cli.commands]
 format = "toml"
 names = ["checkpoint", "resume", "handoff"]
-npm_hint = false
-doctor_adapter = false
 
 [hosts.gemini-cli.manifests]
 "gemini-extension.json" = "gemini_extension"
