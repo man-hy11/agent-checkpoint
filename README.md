@@ -57,17 +57,23 @@ in `.agent-checkpoint/work/<id>/`.
 This design makes each work package's `PROGRESS.md` a short routing document
 and keeps the template package as the source of detailed execution state.
 
-## The twelve skills
+## The thirteen skills
 
-`checkpoint` is a router: it runs `work status`, reads `next_skill`, and
-invokes exactly that skill — it never edits state itself. The other eleven
-each own one phase of a work package's lifecycle, selected by the unit's
-current condition rather than by the agent's judgment. See
-`skills/_checkpoint-shared/chain-v1.md` for the full ordered routing table.
+`checkpoint` and `checkpoint-save` share a name prefix but do different
+jobs, and confusing them is easy — `checkpoint` is a pure router: it runs
+`work status`, reads `next_skill`, and invokes exactly that skill, never
+writing a summary itself. `checkpoint-save` is the session-summary
+counterpart: it writes down what happened this session, creating a work
+package around already-completed work when none exists yet, rather than
+starting to plan new work. The other eleven each own one phase of a work
+package's lifecycle, selected by the unit's current condition rather than
+by the agent's judgment. See `skills/_checkpoint-shared/chain-v1.md` for
+the full ordered routing table.
 
 | Skill | Fires when | Does |
 |---|---|---|
 | `checkpoint` | Always, first | Reads `work status --json`, dispatches to the skill named in `next_skill` |
+| `checkpoint-save` | Any time you want to record what happened — mid-session, or before compaction/a new session | Writes a delta summary via `write` when a work package exists; when none exists, recommends a workflow type (confirmed by the user), creates the package, backfills its brief from the session's actual work, and — only if planning already reads as done, confirmed by the user — hands off to `checkpoint-plan` |
 | `checkpoint-select-workflow` | No state block exists yet | Asks which of the ten workflow types fits, then runs `agent-checkpoint workflow --type TYPE --id current` to create the package |
 | `checkpoint-brainstorm` | A package exists but `brief_confirmed` is false | Asks for goal, scope, success criteria, constraints, and affected area; records only confirmed answers |
 | `checkpoint-plan` | Brief confirmed, but the unit list is empty or the current unit is superseded | Writes `PLAN.md` with numbered steps tied to unit IDs; the only skill that edits the plan |
@@ -148,7 +154,7 @@ claude plugin install agent-checkpoint@agent-checkpoint
 ```
 
 This is the only install path that also gives you the Claude Code adapter's
-`PreCompact`/`SessionStart` hooks and `/checkpoint`, `/resume`, `/handoff`
+`PreCompact`/`SessionStart` hooks and `/checkpoint-save`, `/resume`, `/handoff`
 commands, not just the raw `SKILL.md` files. It still doesn't install the
 `agent-checkpoint` CLI itself — put `bin/agent-checkpoint` on `PATH` as
 described above so the commands the skills reference resolve.

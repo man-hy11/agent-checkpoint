@@ -53,17 +53,23 @@ Agent Checkpoint는 새 AI 에이전트 세션이 실제로 필요로 하는 최
 이 설계 덕분에 각 work package의 `PROGRESS.md`는 짧은 라우팅 문서로
 유지되고, 상세한 실행 상태의 원천은 템플릿 패키지에 남습니다.
 
-## 열두 개의 스킬
+## 열세 개의 스킬
 
-`checkpoint`는 라우터입니다: `work status`를 실행하고 `next_skill`을 읽어
-정확히 그 스킬 하나만 호출합니다 — 상태를 직접 수정하지 않습니다. 나머지
-열한 개는 각각 work package 생애주기의 한 단계를 담당하며, 에이전트의
-판단이 아니라 유닛의 현재 상태로 선택됩니다. 전체 순서가 정해진 라우팅
-표는 `skills/_checkpoint-shared/chain-v1.md`를 참고하세요.
+`checkpoint`와 `checkpoint-save`는 이름 접두사는 같지만 하는 일이 달라
+혼동하기 쉽습니다 — `checkpoint`는 순수 라우터입니다: `work status`를
+실행하고 `next_skill`을 읽어 정확히 그 스킬 하나만 호출하며, 요약은
+직접 작성하지 않습니다. `checkpoint-save`는 세션 요약을 담당하는
+짝입니다: 이번 세션에 일어난 일을 기록하고, work package가 아직 없으면
+이미 끝난 작업을 근거로 새 작업을 계획하는 대신 그 작업 자체를 위한
+work package를 소급 생성합니다. 나머지 열한 개는 각각 work package
+생애주기의 한 단계를 담당하며, 에이전트의 판단이 아니라 유닛의 현재
+상태로 선택됩니다. 전체 순서가 정해진 라우팅 표는
+`skills/_checkpoint-shared/chain-v1.md`를 참고하세요.
 
 | 스킬 | 발동 조건 | 하는 일 |
 |---|---|---|
 | `checkpoint` | 항상, 가장 먼저 | `work status --json`을 읽어 `next_skill`에 지정된 스킬로 위임 |
+| `checkpoint-save` | 무슨 일이 있었는지 기록하고 싶을 때 언제든 — 세션 도중, 또는 compaction/새 세션 전 | work package가 있으면 `write`로 delta 요약 작성; 없으면 워크플로 타입을 추천하고(사용자 확인 후) 패키지를 생성해 세션의 실제 작업을 근거로 brief를 소급 채우며 — 계획이 이미 끝난 것으로 보이고 사용자가 확인한 경우에만 `checkpoint-plan`으로 넘김 |
 | `checkpoint-select-workflow` | 아직 상태 블록이 전혀 없음 | 열 가지 워크플로 타입 중 무엇이 맞는지 묻고 `agent-checkpoint workflow --type TYPE --id current`로 패키지 생성 |
 | `checkpoint-brainstorm` | 패키지는 있지만 `brief_confirmed`가 false | 목표·범위·성공 기준·제약 조건·영향 범위를 물어보고, 확인된 답변만 기록 |
 | `checkpoint-plan` | brief는 확정됐지만 유닛 목록이 비어 있거나 현재 유닛이 superseded | 유닛 ID에 연결된 번호 매긴 단계로 `PLAN.md` 작성 — 계획을 수정하는 유일한 스킬 |
@@ -144,7 +150,7 @@ claude plugin install agent-checkpoint@agent-checkpoint
 ```
 
 이 경로만이 순수 `SKILL.md` 파일뿐 아니라 Claude Code 어댑터의
-`PreCompact`/`SessionStart` 훅과 `/checkpoint`, `/resume`, `/handoff`
+`PreCompact`/`SessionStart` 훅과 `/checkpoint-save`, `/resume`, `/handoff`
 커맨드까지 제공합니다. 다만 이 경로도 `agent-checkpoint` CLI 자체는
 설치하지 않으므로, 스킬이 참조하는 명령이 실행되도록 위 안내대로
 `bin/agent-checkpoint`를 `PATH`에 올려두세요.
