@@ -1,5 +1,7 @@
 # checkpoint-save: a session-summary skill/command distinct from the checkpoint router
 
+**Status:** Implemented. See `docs/superpowers/plans/2026-08-28-checkpoint-save.md`.
+
 ## Problem
 
 `checkpoint` names two different things that happen to share a name:
