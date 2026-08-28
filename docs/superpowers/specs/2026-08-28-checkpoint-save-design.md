@@ -39,7 +39,20 @@ README additions in both languages).
 Out of scope: any change to the `checkpoint` skill, the `checkpoint` command,
 or chain-v1.md's routing table. Out of scope: automatic PLAN.md drafting —
 when a plan exists, `checkpoint-save` hands off to the existing
-`checkpoint-plan` skill rather than writing the plan itself.
+`checkpoint-plan` skill rather than writing the plan itself. Out of scope:
+fixing `checkpoint-brainstorm` or `initialize_workflow`'s behavior — both
+are correct as they stand; `checkpoint-save` follows the same pattern
+`checkpoint-brainstorm` already uses (write `BRIEF.md`/`PROJECT_CONTEXT.md`
+fresh, since `workflow` doesn't create them).
+
+Also in scope, found while planning and unrelated to the naming problem:
+`hosts.toml`'s `npm_hint`, `npm_package`, `doctor_adapter`, and
+`doctor_adapter_name` keys are dead — `_project_commands`
+(`build_adapter.py:222-238`) copies each host's command file verbatim and
+never reads them. They're a residue of the npm-retirement cleanup
+(073a94b fixed the command bodies' text but missed these declared-but-unused
+keys). Removing them is small and touches the same file this work already
+edits.
 
 ## Behavior
 
@@ -72,14 +85,20 @@ before a compaction or a new session.
    a decision.
 3. Run `agent-checkpoint workflow --type TYPE --id current` to create the
    package.
-4. Fill `CURRENT.md`'s Goal / Scope / Success Criteria / Constraints /
-   Affected Area from the session's actual work, then set
-   `brief_confirmed: true` in the state block before moving on — the same
-   file edit `checkpoint-brainstorm` already performs (SKILL.md:22-24),
-   just with facts drawn from completed work instead of asked fresh. There
-   is no CLI flag for this; the CLI never lets state be set by fiat, only
-   parsed from the file (`work_state.py`), so writing the block is the
-   skill's job as it already is for checkpoint-brainstorm.
+4. Write `BRIEF.md` and `PROJECT_CONTEXT.md` (Goal / Scope / Success
+   Criteria / Constraints / Affected Area) from the session's actual work,
+   then set `brief_confirmed: true` in `CURRENT.md`'s state block before
+   moving on — the same two actions `checkpoint-brainstorm` already
+   performs (SKILL.md:19-24), just with facts drawn from completed work
+   instead of asked fresh. Verified empirically that `agent-checkpoint
+   workflow` does not create these files itself (a package it materializes
+   holds only `CURRENT.md`, `CONTINUE_PROMPT.md`, and the template/prompt
+   copies — confirmed by running it and listing the tree), so
+   `checkpoint-save` creates them fresh, same as checkpoint-brainstorm does
+   for a package it didn't create either. There is no CLI flag for
+   `brief_confirmed`; the CLI never lets state be set by fiat, only parsed
+   from the file (`work_state.py`), so writing the block is the skill's
+   job, as it already is for checkpoint-brainstorm.
 5. **Judge whether planning is already effectively done** — the remaining
    work reads as a clear, ordered set of steps rather than an open
    question. Present that judgment and the reasoning; wait for the user to
