@@ -1,5 +1,7 @@
 # Agent Checkpoint
 
+**English** | [한국어](README.ko.md)
+
 Agent Checkpoint is a portable skill and command-line tool for preserving the
 small amount of project state that a new AI-agent session actually needs. It
 keeps verified progress in a work-scoped `PROGRESS.md`, places detailed
@@ -54,6 +56,29 @@ in `.agent-checkpoint/work/<id>/`.
 
 This design makes each work package's `PROGRESS.md` a short routing document
 and keeps the template package as the source of detailed execution state.
+
+## The twelve skills
+
+`checkpoint` is a router: it runs `work status`, reads `next_skill`, and
+invokes exactly that skill — it never edits state itself. The other eleven
+each own one phase of a work package's lifecycle, selected by the unit's
+current condition rather than by the agent's judgment. See
+`skills/_checkpoint-shared/chain-v1.md` for the full ordered routing table.
+
+| Skill | Fires when | Does |
+|---|---|---|
+| `checkpoint` | Always, first | Reads `work status --json`, dispatches to the skill named in `next_skill` |
+| `checkpoint-select-workflow` | No state block exists yet | Asks which of the ten workflow types fits, then runs `agent-checkpoint workflow --type TYPE --id current` to create the package |
+| `checkpoint-brainstorm` | A package exists but `brief_confirmed` is false | Asks for goal, scope, success criteria, constraints, and affected area; records only confirmed answers |
+| `checkpoint-plan` | Brief confirmed, but the unit list is empty or the current unit is superseded | Writes `PLAN.md` with numbered steps tied to unit IDs; the only skill that edits the plan |
+| `checkpoint-claim` | Current unit is `pending` or `ready` | Verifies the unit's dependency is satisfied, then runs `work start` to move it to `running` |
+| `checkpoint-execute` | Current unit is `running` and its kind is `step` | Implements the step; folds small in-scope discoveries into its own evidence, defers larger ones to a handoff report |
+| `checkpoint-verify-gate` | Current unit is `running` and its kind is `gate` | Checks cross-cutting acceptance criteria; any unmet criterion is a fail, not a partial pass |
+| `checkpoint-evidence` | Execution or gate verification just finished | Validates the evidence document against the manifest's required sections, then runs `work pass` or `work fail` |
+| `checkpoint-diagnose` | Current unit is `failed` with no `root_cause_fingerprint` | Analyzes the failure and records a fingerprint; never selects a recovery action itself |
+| `checkpoint-recover` | Current unit is `failed` (fingerprint set) or `blocked` | Chooses one of `retry`, `replan`, `supersede`, `block`, `unblock` from `allowed_events` and applies it |
+| `checkpoint-handoff` | Every unit is `passed` | Renders the final handoff context; checks each open handoff report against the tree before asking whether to resolve or act on it |
+| `checkpoint-inspect` | Any time a read-only status view is needed | Reports state without writing — never calls a transition or recovery command |
 
 ## Adapter behavior at a glance
 
