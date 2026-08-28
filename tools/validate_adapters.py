@@ -121,7 +121,7 @@ def _validate_native_adapter(bundle: Path) -> list[str]:
         bundle / "hooks" / "pre_compress.py"
     ).is_file():
         return _validate_gemini(bundle)
-    if (bundle / "commands" / "checkpoint.md").is_file():
+    if (bundle / "commands" / "checkpoint-save.md").is_file():
         return _validate_opencode(bundle)
     return ["missing or unrecognized native adapter files"]
 
@@ -238,7 +238,7 @@ def _validate_claude(bundle: Path) -> list[str]:
             )
         )
     for name, action in (
-        ("checkpoint", '"${CLAUDE_PLUGIN_ROOT}/bin/agent-checkpoint" write --entry -'),
+        ("checkpoint-save", '"${CLAUDE_PLUGIN_ROOT}/bin/agent-checkpoint" write --entry -'),
         ("resume", '"${CLAUDE_PLUGIN_ROOT}/bin/agent-checkpoint" resume'),
         ("handoff", '"${CLAUDE_PLUGIN_ROOT}/bin/agent-checkpoint" handoff'),
     ):
@@ -338,7 +338,7 @@ def _validate_codex(bundle: Path) -> list[str]:
 def _validate_opencode(bundle: Path) -> list[str]:
     errors: list[str] = []
     for name, action in (
-        ("checkpoint", "agent-checkpoint write --entry -"),
+        ("checkpoint-save", "agent-checkpoint write --entry -"),
         ("resume", "agent-checkpoint resume"),
         ("handoff", "agent-checkpoint handoff"),
     ):
@@ -363,7 +363,7 @@ def _validate_gemini(bundle: Path) -> list[str]:
             )
         )
     for name, action in (
-        ("checkpoint", "agent-checkpoint write --entry -"),
+        ("checkpoint-save", "agent-checkpoint write --entry -"),
         ("resume", "agent-checkpoint resume"),
         ("handoff", "agent-checkpoint handoff"),
     ):

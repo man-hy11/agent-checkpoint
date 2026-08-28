@@ -96,6 +96,33 @@ def write_valid_checkpoint(
         raise AssertionError(result.stderr)
 
 
+class CrossHostCommandTests(unittest.TestCase):
+    def test_checkpoint_command_is_fully_retired(self):
+        """Catches the old /checkpoint command name coming back under any
+        host, or checkpoint-save failing to replace it somewhere."""
+        with tempfile.TemporaryDirectory() as directory:
+            for host, extension in (
+                ("claude-code", "md"),
+                ("opencode", "md"),
+                ("gemini-cli", "toml"),
+            ):
+                bundle = build_bundle(host, Path(directory) / host)
+                command_dir = bundle / "commands"
+                self.assertFalse(
+                    (command_dir / f"checkpoint.{extension}").exists(),
+                    f"{host}: old checkpoint command must not be projected",
+                )
+                self.assertTrue(
+                    (command_dir / f"checkpoint-save.{extension}").is_file(),
+                    f"{host}: checkpoint-save command must be projected",
+                )
+            codex_bundle = build_bundle("codex", Path(directory) / "codex")
+            self.assertFalse(
+                (codex_bundle / "commands").exists(),
+                "codex must still ship no commands directory at all",
+            )
+
+
 class ClaudeAdapterTests(unittest.TestCase):
     def test_claude_bundle_exposes_manifest_command_and_native_hook_paths(self):
         """Catches a bundle whose Claude components are absent or undiscoverable."""
@@ -107,7 +134,7 @@ class ClaudeAdapterTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            command = (bundle / "commands" / "checkpoint.md").read_text(
+            command = (bundle / "commands" / "checkpoint-save.md").read_text(
                 encoding="utf-8"
             )
             hook_config = json.loads(
@@ -355,7 +382,7 @@ class CodexOpenCodeAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             bundle = build_bundle("opencode", Path(directory))
 
-            command = (bundle / "commands" / "checkpoint.md").read_text(
+            command = (bundle / "commands" / "checkpoint-save.md").read_text(
                 encoding="utf-8"
             )
 
@@ -378,7 +405,7 @@ class GeminiAdapterTests(unittest.TestCase):
 
             self.assertEqual(manifest["name"], "agent-checkpoint")
             expected_cli_actions = {
-                "checkpoint": "agent-checkpoint write --entry -",
+                "checkpoint-save": "agent-checkpoint write --entry -",
                 "resume": "agent-checkpoint resume",
                 "handoff": "agent-checkpoint handoff",
             }

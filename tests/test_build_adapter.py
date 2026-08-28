@@ -85,7 +85,7 @@ class BuildAdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse((output / "stale").exists())
             self.assertFalse((output / ".keep").exists())
-            self.assertTrue((output / "commands" / "checkpoint.md").is_file())
+            self.assertTrue((output / "commands" / "checkpoint-save.md").is_file())
 
     @staticmethod
     def _patched_sources(root: Path):
