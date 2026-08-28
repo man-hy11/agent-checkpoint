@@ -26,6 +26,7 @@ SKILL_NAMES: tuple[str, ...] = (
     "checkpoint-inspect",
     "checkpoint-plan",
     "checkpoint-recover",
+    "checkpoint-save",
     "checkpoint-select-workflow",
     "checkpoint-verify-gate",
 )

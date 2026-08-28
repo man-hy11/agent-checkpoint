@@ -22,6 +22,8 @@ functions:
   description: "Use when the work package brief is confirmed but the unit list is empty or the current unit is superseded — creates or updates the implementation plan."
 - name: checkpoint_recover
   description: "Use when the current unit is failed (with a root_cause_fingerprint) or blocked — selects a recovery event (retry, replan, supersede, block, unblock) and applies it."
+- name: checkpoint_save
+  description: "Use to write down what happened this session — a resumable summary via write, or (when no work package exists yet) recommend a workflow type, backfill its brief from the session's actual work, and record progress."
 - name: checkpoint_select_workflow
   description: "Use when no workflow type has been chosen yet — routes the agent to pick a workflow family and initialize its work package before any planning begins."
 - name: checkpoint_verify_gate
