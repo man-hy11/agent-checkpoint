@@ -29,16 +29,15 @@ CONFIG_DEFAULTS = {
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CORE_ROOT = PROJECT_ROOT / "core"
 
 
 def run_cli(*arguments: str, input_text: str | None = None) -> subprocess.CompletedProcess:
-    """Run the public CLI module with the repository core on ``PYTHONPATH``."""
+    """Run the public CLI module with the repository root on ``PYTHONPATH``."""
     environment = os.environ.copy()
     existing_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join(
         path
-        for path in (str(CORE_ROOT), existing_pythonpath)
+        for path in (str(PROJECT_ROOT), existing_pythonpath)
         if path
     )
     return subprocess.run(

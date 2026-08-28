@@ -22,7 +22,7 @@ from agent_checkpoint.workflows import (
     render_root_continue_prompt,
     write_root_continue_prompt,
 )
-from tests.helpers import CORE_ROOT, run_cli
+from tests.helpers import run_cli
 
 
 _FAMILIES = (

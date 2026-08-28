@@ -1,4 +1,4 @@
-# agents/openai.yaml — generated from core/skills/*/SKILL.md frontmatter
+# agents/openai.yaml — generated from skills/*/SKILL.md frontmatter
 # Function names are skill names with hyphens replaced by underscores.
 # Descriptions come verbatim from frontmatter description: fields.
 functions:

@@ -442,7 +442,7 @@ CheckpointStore(Path(sys.argv[1]), ProjectConfig()).write(sys.argv[2])
             process_options = {
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
-                "env": {**os.environ, "PYTHONPATH": "core"},
+                "env": {**os.environ, "PYTHONPATH": "."},
                 "cwd": Path(__file__).resolve().parents[1],
             }
             first_process = subprocess.Popen(

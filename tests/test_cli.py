@@ -11,7 +11,7 @@ from unittest import mock
 from agent_checkpoint.config import ConfigError, read_active_work_id, write_active_work_id
 from agent_checkpoint.work_state import parse_state
 from agent_checkpoint.workflows import write_root_continue_prompt
-from tests.helpers import CORE_ROOT, VALID_BODY, run_cli
+from tests.helpers import PROJECT_ROOT, VALID_BODY, run_cli
 
 
 if os.name == "posix":
@@ -736,8 +736,8 @@ class CliTests(unittest.TestCase):
         environment.pop("PYTHONPATH", None)
 
         result = subprocess.run(
-            [sys.executable, str(CORE_ROOT / "bin" / "agent-checkpoint"), "--help"],
-            cwd=CORE_ROOT.parent,
+            [sys.executable, str(PROJECT_ROOT / "bin" / "agent-checkpoint"), "--help"],
+            cwd=PROJECT_ROOT,
             env=environment,
             text=True,
             capture_output=True,

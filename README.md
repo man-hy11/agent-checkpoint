@@ -69,157 +69,114 @@ bootstrap checkpoint clearly marks itself as a placeholder because lifecycle
 hooks cannot inspect the preceding conversation. Replace it with a
 task-specific manual checkpoint once the active work is known.
 
+When Claude Code reaches compaction without an existing checkpoint, its hook
+writes one valid bootstrap entry, stops the current processing path, and asks
+the user to start a fresh Claude Code session. That new `startup` session
+receives only the root `CONTINUE_PROMPT.md -> CURRENT.md ->
+CONTINUE_PROMPT.md` reading order, not a prior-history resume body. If the
+bootstrap write fails, compaction is blocked rather than proceeding without a
+checkpoint. Existing checkpoints are left unchanged.
+
 ## Requirements
 
 - Python 3.11 or newer on `PATH`
 - Git for branch, worktree, ignore, and tracked-file diagnostics
 
-## Install the CLI globally
+## Install the CLI
 
-### npm / npx
-
-The npm package wraps the bundled Python 3.11+ core. After the package is
-published to the npm registry, either install it globally or run it on demand:
+The CLI is a dependency-free Python 3.11+ program. From a checkout, either
+add `bin/` to `PATH` or symlink the launcher onto an existing `PATH`
+directory:
 
 ```bash
-npm install -g agent-checkpoint
+ln -s /absolute/path/to/agent-checkpoint/bin/agent-checkpoint /usr/local/bin/agent-checkpoint
 agent-checkpoint --help
 
-npx --yes agent-checkpoint --help
+# or invoke it directly without installing anything
+/absolute/path/to/agent-checkpoint/bin/agent-checkpoint --help
 ```
 
-This installs **only the CLI** — it has no `postinstall` step and never
-writes outside `node_modules`/your npm global prefix, so it never triggers an
-npm `allow-scripts` warning. Install the skill separately with whichever of
-the two paths below fits your agent.
-
-Publishing is deliberately separate from this repository change: use your
-approved npm account and package name before relying on the registry form. To
-test a checkout before publication, install that checkout directly:
-
-```bash
-npm install -g /absolute/path/to/agent-checkpoint
-```
-
-The wrapper uses `python3` by default. Set `AGENT_CHECKPOINT_PYTHON` to select
-another Python 3.11+ executable.
+Set `AGENT_CHECKPOINT_PYTHON` to select a specific Python 3.11+ executable if
+`python3` on `PATH` doesn't resolve to one.
 
 ## Install the skill
 
 ### Claude Code plugin (recommended for Claude Code)
 
-`adapters/claude-code/` is itself a Claude Code plugin marketplace
-(`adapters/claude-code/.claude-plugin/marketplace.json`), so Claude Code can
-install its skills, commands, and hooks together with no separate npm step.
-Point the marketplace add at that subdirectory, not the repository root:
+Host bundles are built on demand rather than checked in. Build the Claude Code
+bundle first; it is itself a Claude Code plugin marketplace
+(`.claude-plugin/marketplace.json`), so Claude Code can install its skills,
+commands, and hooks together in one step. Point the marketplace add at the
+built bundle, not the repository root:
 
 ```bash
-# From a local checkout
-claude plugin marketplace add /absolute/path/to/agent-checkpoint/adapters/claude-code
+# Build the bundle from a local checkout
+python3 tools/build_adapter.py claude-code --output /absolute/path/to/bundle
+
+# Then, from a shell
+claude plugin marketplace add /absolute/path/to/bundle
 claude plugin install agent-checkpoint@agent-checkpoint
 
 # Or from inside a Claude Code session
-/plugin marketplace add /absolute/path/to/agent-checkpoint/adapters/claude-code
+/plugin marketplace add /absolute/path/to/bundle
 /plugin install agent-checkpoint@agent-checkpoint
 ```
 
 This is the only install path that also gives you the Claude Code adapter's
 `PreCompact`/`SessionStart` hooks and `/checkpoint`, `/resume`, `/handoff`
 commands, not just the raw `SKILL.md` files. It still doesn't install the
-`agent-checkpoint` CLI itself — install that with npm as described above so
-the commands the skills reference are on `PATH`.
+`agent-checkpoint` CLI itself — put `bin/agent-checkpoint` on `PATH` as
+described above so the commands the skills reference resolve.
 
 ### npx skills add (Claude Code, Codex, OpenCode, and other `skills`-CLI agents)
 
 The skill package also installs with the community
 [`skills`](https://www.npmjs.com/package/skills) CLI, which clones this
-repository and links the `SKILL.md` files it finds under `core/skills/` into
-your agent's skill directory. Pass `--full-depth` so it looks past the
-repository root:
+repository and links every `SKILL.md` it finds under `skills/` into your
+agent's skill directory:
 
 ```bash
 # Install every checkpoint skill
-npx skills add https://github.com/man-hy11/agent-checkpoint --full-depth --all
+npx skills add https://github.com/man-hy11/agent-checkpoint --all
 
 # Install a single skill (for example, the router)
-npx skills add https://github.com/man-hy11/agent-checkpoint --full-depth --skill checkpoint
+npx skills add https://github.com/man-hy11/agent-checkpoint --skill checkpoint
 ```
 
 This installs the skill definitions only (no hooks, no commands); it does not
-install the `agent-checkpoint` CLI. Install the CLI with npm as described
-above so the commands referenced by the skills are on `PATH`.
-
-### Manual / scripted install (any detected agent directory)
-
-The npm package still ships the same linking logic the old `postinstall` step
-used to run automatically — it's just no longer wired to npm's install
-lifecycle. Run it yourself when you want `~/.agent/skills/` plus symlinks into
-whichever of `~/.claude`, `~/.codex`, `~/.config/opencode` it detects on the
-machine:
-
-```bash
-npm install -g agent-checkpoint      # CLI first
-cd "$(npm root -g)/agent-checkpoint" # or a local checkout
-npm run install-skill
-
-# equivalent, once the CLI is on PATH:
-agent-checkpoint skill-install --global --agent claude-code --agent codex --agent opencode
-```
+install the `agent-checkpoint` CLI. Put `bin/agent-checkpoint` on `PATH`
+as described above so the commands referenced by the skills resolve.
 
 ## Where things get installed
 
-The CLI and the skill definitions are two separate deliverables, and each
-install path puts them in different places. There is no single directory that
-holds everything.
-
-### The CLI
-
-`npm install -g agent-checkpoint` puts the `agent-checkpoint` executable
-wherever your npm global prefix resolves to (for example
-`/usr/local/lib/node_modules` or your `nvm`/`npm config get prefix` location).
-This is ordinary npm global-install behavior, not something this package
-controls.
+The CLI and the skill definitions are two separate deliverables that install
+independently — there is no single command that installs both.
 
 ### The skill files (`SKILL.md`)
-
-Three different install paths manage skill files, and they use different
-canonical directories:
 
 | Installer | Canonical (real files) | Naming |
 |---|---|---|
 | Claude Code plugin (`/plugin install`) | `~/.claude/plugins/cache/...` | managed entirely by Claude Code; not a bare `SKILL.md` directory |
-| `agent-checkpoint skill-install` (via `npm run install-skill`) | `~/.agent/skills/` | singular `.agent` |
 | `npx skills add ... -g` (the community `skills` CLI) | `~/.agents/skills/` | plural `.agents` |
 
-For the latter two, only one directory holds the actual files for a given
-install; the other tool never writes to it. Whichever one is canonical, every
-supported coding agent gets a symlink pointing back to it — the agent itself
-never stores its own copy:
+For the `skills`-CLI path, every supported coding agent gets a symlink
+pointing back to the canonical copy — the agent itself never stores its own:
 
 ```
-~/.claude/skills/checkpoint*              -> canonical directory above
+~/.claude/skills/checkpoint*              -> ~/.agents/skills/checkpoint*
 ~/.codex/skills/checkpoint*                (or $CODEX_HOME/skills)
 ~/.config/opencode/skills/checkpoint*
 ```
 
-`agent-checkpoint skill-install --agent agent-compatible` additionally links
-`~/.agents/skills/checkpoint*` even when `~/.agent/skills/` is the canonical
-copy — that one flag is the only place the two naming conventions overlap.
-
 Gemini CLI does not read generic `SKILL.md` directories at all, so neither
-installer links anything for it; it needs the native extension built by
-`tools/build_adapter.py gemini-cli` instead.
+installer links anything for it.
 
 ### Practical effect
 
 Because the CLI and the skills install independently, running only one half
-leaves the other missing. Installing the CLI without also installing the
-skill (via the Claude Code plugin, `npx skills add`, or `npm run
-install-skill`) means no coding agent can discover the skill; installing the
-skill without the CLI means the skill's `SKILL.md` instructions reference an
-`agent-checkpoint` command that is not on `PATH`. No single command does both
-automatically anymore — run the CLI install and one of the three skill-install
-paths above.
+leaves the other missing. Installing the skill (via the Claude Code plugin or
+`npx skills add`) without also putting `bin/agent-checkpoint` on `PATH`
+means the skill's instructions reference a command that can't run.
 
 ## Initialize a project
 
@@ -291,107 +248,6 @@ package's `CURRENT.md` and `PLAN_*.md` prompt; a new session reads the root
 `CONTINUE_PROMPT.md`, then the package's `CURRENT.md`, then its own
 `CONTINUE_PROMPT.md`, and executes only the Current Target.
 
-## Runtime adapters
-
-Each build is self-contained: it copies the canonical core, an executable
-`bin/agent-checkpoint` launcher, and the selected runtime's native files into
-the output directory.
-
-```bash
-python3 tools/build_adapter.py claude-code --output dist/claude-code
-python3 tools/build_adapter.py codex --output dist/codex
-python3 tools/build_adapter.py opencode --output dist/opencode
-python3 tools/build_adapter.py gemini-cli --output dist/gemini-cli
-```
-
-Install the resulting directory with the runtime's native plugin, skill, or
-extension workflow. The supported capability levels are:
-
-| Target | Capability | Behavior |
-|---|---|---|
-| Claude Code | `automatic` | `/agent-checkpoint:checkpoint`, `/agent-checkpoint:resume`, and `/agent-checkpoint:handoff`, plus bootstrap checkpoint creation followed by a new-session handoff |
-| Codex | `manual` | Native checkpoint skill with manual resume, handoff, and doctor workflows |
-| OpenCode | `manual` | Native commands and skill; no lifecycle automation is promised |
-| Gemini CLI | `advisory` | Native commands plus a pre-compression checkpoint advisory; resume and handoff remain manual |
-
-All adapters retain a manual checkpoint path if lifecycle automation is absent
-or unavailable.
-
-### Install an adapter
-
-Build the adapter you need first. The shared CLI can be installed once for all
-runtimes, but each native adapter still needs its own installation step.
-
-```bash
-npm install -g agent-checkpoint
-```
-
-#### Claude Code
-
-For local development or a one-session test, load the built plugin directly:
-
-```bash
-claude --plugin-dir "$PWD/dist/claude-code"
-```
-
-For a persistent installation, publish or add the bundle through a Claude Code
-marketplace and install it with Claude Code's plugin manager.
-
-#### Codex
-
-Install the checkpoint skill into Codex's user skill directory:
-
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -a dist/codex/skills/checkpoint "${CODEX_HOME:-$HOME/.codex}/skills/"
-```
-
-Restart Codex after copying it. This adapter is manual-only.
-
-#### OpenCode
-
-Copy the built skill and commands into the current project's OpenCode folders:
-
-```bash
-mkdir -p .opencode/skills .opencode/commands
-cp -a dist/opencode/skills/checkpoint .opencode/skills/
-cp -a dist/opencode/commands/. .opencode/commands/
-```
-
-Restart OpenCode or reload its project configuration. This adapter is
-manual-only.
-
-#### Gemini CLI
-
-Install the built extension from its local path, then restart Gemini CLI:
-
-```bash
-gemini extensions install "$PWD/dist/gemini-cli"
-```
-
-Gemini CLI copies local extensions on installation; run its extension update
-command after rebuilding when you want to refresh that installed copy.
-
-When Claude Code reaches compaction without an existing checkpoint, its hook
-writes one valid bootstrap entry through the bundled CLI, stops the current
-processing path, and asks the user to start a fresh Claude Code session. That
-new `startup` session receives only the root `CONTINUE_PROMPT.md -> CURRENT.md
--> CONTINUE_PROMPT.md` reading order, not a prior-history resume body. If the
-bootstrap write fails, compaction is blocked rather than proceeding without a
-checkpoint. Existing checkpoints are left unchanged.
-
-To statically check a built bundle, run:
-
-```bash
-python3 tools/validate_adapters.py dist/claude-code
-```
-
-Validation checks both the shared launcher/core and the selected runtime's
-native manifest, command, skill, and hook structure. Bundle builds are staged
-before replacement; output paths that overlap the selected adapter template or
-canonical core are refused, and a failed forced build preserves the prior
-bundle.
-
 ## Project configuration
 
 An optional `.agent-checkpoint.toml` in the consumer project's root overrides
@@ -430,11 +286,10 @@ completes.
 
 ## Development
 
-Run the complete test suite and validate any generated bundles before release:
+Run the complete test suite:
 
 ```bash
-PYTHONPATH=core python3 -m unittest discover -s tests -v
-python3 tools/validate_adapters.py dist/claude-code
+PYTHONPATH=. python3 -m unittest discover -s tests -v
 ```
 
 ## License

@@ -13,7 +13,7 @@ from typing import Sequence
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_CORE_SKILLS_DIR = _PROJECT_ROOT / "core" / "skills"
+_CORE_SKILLS_DIR = _PROJECT_ROOT / "skills"
 
 _LAUNCHER_PATH = Path("bin") / "agent-checkpoint"
 _CORE_MODULES = (
@@ -141,7 +141,7 @@ def _extract_skill_names(bundle: Path) -> list[str] | None:
 
 def _validate_skill_manifest(bundle: Path) -> list[str]:
     """Validate that the skills/ directory matches SKILL_NAMES exactly, and
-    that each skill's body has not drifted from its core/skills/ source of
+    that each skill's body has not drifted from its skills/ source of
     truth (when that source tree is available alongside this checkout)."""
     skill_names = _extract_skill_names(bundle)
     if skill_names is None:
@@ -168,12 +168,18 @@ def _validate_skill_manifest(bundle: Path) -> list[str]:
                 _validate_skill_body_parity(bundle / skill_path, name, str(skill_path))
             )
 
-    # Check for extra (undeclared) skills
+    # Check for extra (undeclared) skills. Only directories can be skills, so a
+    # stray file beside them is reported as what it is rather than as an
+    # "undeclared skill directory".
     declared = set(skill_names)
     if skills_dir.is_dir():
         for entry in sorted(skills_dir.iterdir()):
-            if entry.name not in declared:
+            if entry.name in declared:
+                continue
+            if entry.is_dir():
                 errors.append(f"undeclared skill directory: skills/{entry.name}")
+            else:
+                errors.append(f"unexpected file in skills/: skills/{entry.name}")
 
     return errors
 
@@ -181,13 +187,13 @@ def _validate_skill_manifest(bundle: Path) -> list[str]:
 def _validate_skill_body_parity(
     bundle_skill_path: Path, skill_name: str, relative: str
 ) -> list[str]:
-    """Compare a bundled skill's body against core/skills/<name>/SKILL.md.
+    """Compare a bundled skill's body against skills/<name>/SKILL.md.
 
-    Opportunistic: silently skipped when core/skills/ is not available
+    Opportunistic: silently skipped when skills/ is not available
     alongside this checkout (e.g. validating a distributed bundle with no
     sibling source tree), so a standalone ``validate_adapters.py dist/codex``
     keeps working. Always runs when validating bundles built from this
-    repository, where core/skills/ is guaranteed present.
+    repository, where skills/ is guaranteed present.
     """
     core_skill_path = _CORE_SKILLS_DIR / skill_name / "SKILL.md"
     if not core_skill_path.is_file():
@@ -198,7 +204,7 @@ def _validate_skill_body_parity(
     except (OSError, UnicodeError):
         return [f"unreadable native skill: {relative}"]
     if bundle_body != core_body:
-        return [f"skill body drifted from core/skills/ source: {relative}"]
+        return [f"skill body drifted from skills/ source: {relative}"]
     return []
 
 
@@ -206,7 +212,7 @@ def _skill_body(path: Path) -> str:
     """Return everything after the frontmatter's closing '---' line.
 
     Unlike ``_parse_frontmatter``, this does not validate the frontmatter's
-    grammar — it only strips it — because ``core/skills/`` sources author
+    grammar — it only strips it — because ``skills/`` sources author
     their ``description:`` as plain unquoted YAML (free of the quoting
     ``_frontmatter_string`` requires for bundled adapter output), and this
     helper must read both forms to compare bodies across the two.
@@ -283,6 +289,7 @@ def _validate_claude(bundle: Path) -> list[str]:
             errors.append(required)
         else:
             errors.extend(_validate_python_source(bundle / relative, str(relative)))
+    errors.extend(_validate_skill_manifest(bundle))
     return errors
 
 

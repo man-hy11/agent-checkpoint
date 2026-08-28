@@ -1,0 +1,141 @@
+# hosts.toml — host projection profiles
+#
+# Single source for everything that differs between the four supported hosts.
+# Consumed by tools/build_adapter.py (R5) to project the shared content under
+# skills/, commands/, and hooks/ into a per-host bundle.
+#
+# Only differences belong here. Anything identical across hosts lives in the
+# shared source trees, not in this file.
+#
+# Facts recorded here were verified against the frozen baseline fixture in
+# tests/fixtures/adapter-baseline/ (R1). See DESIGN.md for the derivation and
+# the per-host difference table.
+
+[meta]
+# Every manifest version is derived from package.json rather than declared
+# per host. Settled at plan revision 4: claude-code tracked package.json
+# (0.0.5, bumped in 80683b1) while codex and gemini-cli still carried the
+# initial-commit 0.1.0. That drift was stale, not deliberate.
+version_source = "package.json"
+
+
+# ---------------------------------------------------------------------------
+# claude-code — full lifecycle automation
+# ---------------------------------------------------------------------------
+[hosts.claude-code]
+capability = "automatic"
+cli = '"${CLAUDE_PLUGIN_ROOT}/bin/agent-checkpoint"'
+ships_skills = true
+
+[hosts.claude-code.commands]
+format = "md"
+names = ["checkpoint", "resume", "handoff"]
+# claude-code commands carry no recovery guidance: no npm reinstall hint and
+# no `doctor --adapter` block. Both are opencode-only.
+npm_hint = false
+doctor_adapter = false
+
+[hosts.claude-code.manifests]
+".claude-plugin/plugin.json" = "claude_plugin"
+".claude-plugin/marketplace.json" = "claude_marketplace"
+
+[hosts.claude-code.hooks]
+path_variable = "${CLAUDE_PLUGIN_ROOT}"
+manifest = "hooks/hooks.json"
+# Seconds. Gemini CLI uses milliseconds for the same field — the units differ,
+# not just the values.
+timeout_unit = "seconds"
+# Separate "command" + "args" array. Gemini CLI collapses these into one
+# command string; a template that only swaps the path variable would emit a
+# structurally wrong manifest.
+command_shape = "args_array"
+description = "Save progress before compaction and restore bounded resume context."
+# Hook entries carry no "name" field on this host.
+entry_name = false
+
+[[hosts.claude-code.hooks.events]]
+event = "PreCompact"
+matcher = "manual|auto"
+script = "pre_compact.py"
+timeout = 30
+
+[[hosts.claude-code.hooks.events]]
+event = "SessionStart"
+# No matcher key at all on this event — distinct from an empty matcher.
+script = "session_start.py"
+timeout = 15
+
+
+# ---------------------------------------------------------------------------
+# codex — skills only, no commands, no hooks
+# ---------------------------------------------------------------------------
+[hosts.codex]
+capability = "manual"
+ships_skills = true
+# No `cli` key: codex ships no command files, so no invocation string is
+# projected for this host.
+
+[hosts.codex.manifests]
+".codex-plugin/plugin.json" = "codex_plugin"
+
+# Deliberately absent: [hosts.codex.commands] and [hosts.codex.hooks].
+# Absence is part of the contract — the generator must emit no commands/ and
+# no hooks/ for this host, not empty directories.
+
+
+# ---------------------------------------------------------------------------
+# opencode — commands and skills, but no install manifest at all
+# ---------------------------------------------------------------------------
+[hosts.opencode]
+capability = "manual"
+cli = "agent-checkpoint"
+ships_skills = true
+
+[hosts.opencode.commands]
+format = "md"
+names = ["checkpoint", "resume", "handoff"]
+# opencode is the only host whose commands carry recovery guidance.
+npm_hint = true
+npm_package = "agent-checkpoint"
+doctor_adapter = true
+doctor_adapter_name = "opencode"
+
+# Deliberately absent: [hosts.opencode.manifests] and [hosts.opencode.hooks].
+# opencode ships no install manifest of any kind.
+
+
+# ---------------------------------------------------------------------------
+# gemini-cli — commands and hooks, but no skills
+# ---------------------------------------------------------------------------
+[hosts.gemini-cli]
+capability = "advisory"
+cli = "agent-checkpoint"
+# The only host that ships no skills at all.
+ships_skills = false
+
+[hosts.gemini-cli.commands]
+format = "toml"
+names = ["checkpoint", "resume", "handoff"]
+npm_hint = false
+doctor_adapter = false
+
+[hosts.gemini-cli.manifests]
+"gemini-extension.json" = "gemini_extension"
+
+[hosts.gemini-cli.hooks]
+path_variable = "${extensionPath}"
+manifest = "hooks/hooks.json"
+# Milliseconds, unlike claude-code's seconds.
+timeout_unit = "milliseconds"
+# Single combined command string, unlike claude-code's command + args array.
+command_shape = "command_string"
+# No top-level "description" key in this host's hooks.json.
+description = false
+entry_name = true
+
+[[hosts.gemini-cli.hooks.events]]
+event = "PreCompress"
+matcher = "*"
+script = "pre_compress.py"
+name = "agent-checkpoint-pre-compress"
+timeout = 30000

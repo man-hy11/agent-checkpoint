@@ -1,0 +1,10 @@
+description = "Render the current checkpoint context."
+prompt = """
+Render the current project's checkpoint context with:
+
+agent-checkpoint resume
+
+Use `--root PATH` or `--max-chars NUMBER` when needed and follow the rendered
+`Language:` instruction. Report any failure without claiming that checkpoint
+context was loaded.
+"""

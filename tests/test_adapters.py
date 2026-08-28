@@ -543,18 +543,19 @@ class GeminiAdapterTests(unittest.TestCase):
 
 class RepositoryLayoutTests(unittest.TestCase):
     def test_repository_no_longer_has_claude_only_root_layout(self):
-        """Catches legacy Claude-only sources competing with portable adapters."""
+        """Catches legacy Claude-only sources competing with portable adapters.
+
+        Since R6 no per-host tree is stored at all: claude-code's plugin
+        manifest is projected into a bundle from hosts.toml, so the repository
+        must hold neither the old Claude-only root layout nor a hand-maintained
+        adapters/ tree.
+        """
         self.assertFalse((PROJECT_ROOT / ".claude-plugin").exists())
         self.assertFalse((PROJECT_ROOT / "hooks" / "hooks.json").exists())
-        self.assertTrue(
-            (
-                PROJECT_ROOT
-                / "adapters"
-                / "claude-code"
-                / ".claude-plugin"
-                / "plugin.json"
-            ).exists()
-        )
+        self.assertFalse((PROJECT_ROOT / "adapters").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = build_bundle("claude-code", Path(directory))
+            self.assertTrue((bundle / ".claude-plugin" / "plugin.json").is_file())
 
     def test_readme_documents_every_target_and_tracked_file_warning(self):
         """Catches portable install guidance omitting a runtime or Git warning."""
@@ -575,6 +576,41 @@ class AdapterValidationTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, "")
+
+    def test_validate_adapter_rejects_undeclared_skill_on_every_skill_host(self):
+        """Catches a skill-shipping host whose skill manifest is never validated.
+
+        Before R5, `_validate_claude` never called `_validate_skill_manifest`,
+        so claude-code — the only automatic-capability host, shipping 12
+        skills — passed validation by checking nothing. A host that validates
+        nothing passes an accepts-valid-bundles test trivially, so this asserts
+        the negative case for every host that ships skills.
+        """
+        for adapter in ("claude-code", "codex", "opencode"):
+            with self.subTest(adapter=adapter), tempfile.TemporaryDirectory() as directory:
+                output = build_bundle(adapter, Path(directory))
+                undeclared = output / "skills" / "bogus-skill"
+                undeclared.mkdir(parents=True)
+                (undeclared / "SKILL.md").write_text(
+                    "---\nname: bogus\n---\nbody\n", encoding="utf-8"
+                )
+
+                result = run_tool("tools/validate_adapters.py", str(output))
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("undeclared skill directory", result.stderr)
+
+    def test_validate_adapter_reports_stray_file_in_skills_as_a_file(self):
+        """Catches a stray file being misreported as an undeclared directory."""
+        with tempfile.TemporaryDirectory() as directory:
+            output = build_bundle("claude-code", Path(directory))
+            (output / "skills" / "AGENTS.md").write_text("notes\n", encoding="utf-8")
+
+            result = run_tool("tools/validate_adapters.py", str(output))
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unexpected file in skills/", result.stderr)
+            self.assertNotIn("undeclared skill directory", result.stderr)
 
     def test_validate_adapter_rejects_corrupt_claude_native_files(self):
         """Catches common-only validation of an incomplete Claude command set."""
@@ -851,25 +887,29 @@ def _skill_body(path: Path) -> str:
 
 
 class SkillContentParityTests(unittest.TestCase):
-    """Catches an adapter skill drifting from its core/skills/ source of truth (R5-I11)."""
+    """Catches an adapter skill drifting from its skills/ source of truth (R5-I11)."""
 
     def test_all_twelve_skills_match_core_across_text_adapters(self):
-        """Catches the codex/opencode router regressing to stale pre-R5 content."""
-        for name in SKILL_NAMES:
-            core_body = _skill_body(PROJECT_ROOT / "core" / "skills" / name / "SKILL.md")
+        """Catches the codex/opencode router regressing to stale pre-R5 content.
+
+        Since R6 no per-host skills tree is stored, so parity is checked against
+        what a build actually projects rather than against a checked-in copy.
+        """
+        with tempfile.TemporaryDirectory() as directory:
             for adapter in ("codex", "opencode", "claude-code"):
-                adapter_path = (
-                    PROJECT_ROOT / "adapters" / adapter / "skills" / name / "SKILL.md"
-                )
-                self.assertEqual(
-                    _skill_body(adapter_path),
-                    core_body,
-                    f"{adapter}/skills/{name}/SKILL.md body drifted from core/skills/{name}/SKILL.md",
-                )
+                bundle = build_bundle(adapter, Path(directory))
+                for name in SKILL_NAMES:
+                    core_body = _skill_body(PROJECT_ROOT / "skills" / name / "SKILL.md")
+                    self.assertEqual(
+                        _skill_body(bundle / "skills" / name / "SKILL.md"),
+                        core_body,
+                        f"{adapter} projected skills/{name}/SKILL.md body drifted "
+                        f"from skills/{name}/SKILL.md",
+                    )
 
     def test_validate_adapter_rejects_skill_body_drifted_from_core(self):
         """Catches the exact class of drift R5-R1 found: an adapter skill silently
-        diverging from its core/skills/ source with no validation failure."""
+        diverging from its skills/ source with no validation failure."""
         with tempfile.TemporaryDirectory() as directory:
             bundle = build_bundle("codex", Path(directory))
             stale_skill = bundle / "skills" / "checkpoint" / "SKILL.md"

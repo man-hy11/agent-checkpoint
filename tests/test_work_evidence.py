@@ -14,7 +14,7 @@ ADEQUATE = """## Unit: P3
 ## Attempt: 2
 
 ### command
-`PYTHONPATH=core python3 -m unittest tests.test_work_state -v`
+`PYTHONPATH=. python3 -m unittest tests.test_work_state -v`
 
 ### pass_fail
 PASS
@@ -52,7 +52,7 @@ class ValidateTests(unittest.TestCase):
     def test_missing_section_is_reported(self):
         """Catches a unit passing without recording what was actually run."""
         text = ADEQUATE.replace(
-            "### command\n`PYTHONPATH=core python3 -m unittest tests.test_work_state -v`\n\n",
+            "### command\n`PYTHONPATH=. python3 -m unittest tests.test_work_state -v`\n\n",
             "",
         )
 

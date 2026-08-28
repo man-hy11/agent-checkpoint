@@ -1,0 +1,10 @@
+description = "Create a checkpoint handoff summary for the next agent."
+prompt = """
+Create a handoff summary for the next agent with:
+
+agent-checkpoint handoff
+
+Use `--root PATH` or `--max-chars NUMBER` when needed. Keep rendered verification
+results separate from recent decisions and follow the rendered `Language:`
+instruction. Report any failure without claiming that a handoff was created.
+"""
