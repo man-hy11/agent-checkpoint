@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.helpers import CORE_ROOT, PROJECT_ROOT
+from tests.helpers import PROJECT_ROOT
 
 from agent_checkpoint.work_state import BLOCK_BEGIN, BLOCK_END, parse_state
 
@@ -20,7 +20,7 @@ def _make_current(state_dict: dict) -> str:
 
 
 def _run_work_status_json(project_root: Path) -> dict:
-    env = {**os.environ, "PYTHONPATH": str(CORE_ROOT)}
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
     result = subprocess.run(
         [sys.executable, "-m", "agent_checkpoint.cli", "work", "status", "--json",
          "--root", str(project_root)],

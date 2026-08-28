@@ -27,7 +27,7 @@ class NpmPackageTests(unittest.TestCase):
     def test_package_excludes_dotfile_directories_from_template_assets(self):
         """Catches stray dotfile-directory state (e.g. another tool's session
         files) leaking into the published tarball from beneath
-        core/agent_checkpoint/assets/development-templates/, where a
+        agent_checkpoint/assets/development-templates/, where a
         directory named directly in package.json's ``files`` array is walked
         on disk regardless of git-tracking state or the root .npmignore."""
         packed = subprocess.run(
@@ -42,7 +42,7 @@ class NpmPackageTests(unittest.TestCase):
         template_paths = [
             name
             for name in names
-            if name.startswith("core/agent_checkpoint/assets/development-templates/")
+            if name.startswith("agent_checkpoint/assets/development-templates/")
         ]
         self.assertTrue(template_paths, "expected template assets to be packaged")
         dotdir_leaks = [

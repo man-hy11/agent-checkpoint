@@ -4,7 +4,7 @@ import re
 import unittest
 from pathlib import Path
 
-_SKILLS_ROOT = Path(__file__).resolve().parents[1] / "core" / "skills"
+_SKILLS_ROOT = Path(__file__).resolve().parents[1] / "skills"
 _SHARED_DIR = _SKILLS_ROOT / "_checkpoint-shared"
 
 EXPECTED_SKILLS = (

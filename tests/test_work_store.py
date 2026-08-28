@@ -36,7 +36,7 @@ EVIDENCE_ENTRY = """## Unit: I4
 ## Attempt: 1
 
 ### command
-`PYTHONPATH=core python3 -m unittest tests.test_work_store -v`
+`PYTHONPATH=. python3 -m unittest tests.test_work_store -v`
 
 ### pass_fail
 PASS

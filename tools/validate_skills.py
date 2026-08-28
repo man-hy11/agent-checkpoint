@@ -2,7 +2,7 @@
 """Validate the twelve-skill progressive-disclosure suite structure.
 
 Usage:
-    python3 tools/validate_skills.py core/skills
+    python3 tools/validate_skills.py skills
 """
 
 import sys

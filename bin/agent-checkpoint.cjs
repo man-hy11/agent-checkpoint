@@ -5,7 +5,7 @@ const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
-const launcher = path.join(root, "core", "bin", "agent-checkpoint");
+const launcher = path.join(root, "bin", "agent-checkpoint");
 const python = process.env.AGENT_CHECKPOINT_PYTHON || "python3";
 const result = spawnSync(python, [launcher, ...process.argv.slice(2)], {
   stdio: "inherit",

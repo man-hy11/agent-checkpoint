@@ -192,7 +192,7 @@ class ProgressTests(unittest.TestCase):
     def test_schema_requires_every_core_section_when_verification_is_present(self):
         """Catches optional verification weakening the five required headings."""
         schema = json.loads(
-            (PROJECT_ROOT / "core/schemas/progress.schema.json").read_text(
+            (PROJECT_ROOT / "schemas/progress.schema.json").read_text(
                 encoding="utf-8"
             )
         )

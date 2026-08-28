@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -86,23 +87,51 @@ class BuildAdapterTests(unittest.TestCase):
             self.assertFalse((output / ".keep").exists())
             self.assertTrue((output / "commands" / "checkpoint.md").is_file())
 
+    @staticmethod
+    def _patched_sources(root: Path):
+        """Point the builder at a throwaway copy of every single source tree.
+
+        Since R5 the builder projects from skills/, commands/, and hooks/ rather
+        than a per-host adapters/ template, so overlap protection must cover all
+        of them plus the Python package.
+        """
+        return (
+            mock.patch.object(build_adapter, "_SKILLS_ROOT", root / "skills"),
+            mock.patch.object(build_adapter, "_COMMANDS_ROOT", root / "commands"),
+            mock.patch.object(build_adapter, "_HOOKS_ROOT", root / "hooks"),
+            mock.patch.object(
+                build_adapter, "_SOURCE_PACKAGE", root / "agent_checkpoint"
+            ),
+        )
+
+    @staticmethod
+    def _make_sources(root: Path) -> Path:
+        """Create a minimal stand-in for the single-source trees; return a sentinel."""
+        (root / "skills" / "checkpoint").mkdir(parents=True)
+        (root / "skills" / "checkpoint" / "SKILL.md").write_text(
+            "---\nname: checkpoint\ndescription: x\n---\nbody\n", encoding="utf-8"
+        )
+        (root / "commands").mkdir(parents=True, exist_ok=True)
+        (root / "hooks").mkdir(parents=True, exist_ok=True)
+        (root / "agent_checkpoint").mkdir(parents=True, exist_ok=True)
+        (root / "agent_checkpoint" / "__init__.py").write_text("", encoding="utf-8")
+        sentinel = root / "skills" / "checkpoint" / "keep.md"
+        sentinel.write_text("source", encoding="utf-8")
+        return sentinel
+
     def test_build_rejects_output_equal_to_or_ancestor_of_sources(self):
-        """Catches --force removing the canonical source tree itself."""
-        for output_kind in ("template", "ancestor"):
+        """Catches --force removing a canonical source tree itself."""
+        for output_kind in ("source", "ancestor"):
             with self.subTest(output=output_kind), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory) / "source-root"
-                template = root / "adapters" / "codex"
-                package = root / "core" / "agent_checkpoint"
-                template.mkdir(parents=True)
-                package.mkdir(parents=True)
-                sentinel = template / "keep.md"
-                sentinel.write_text("source", encoding="utf-8")
-                (package / "__init__.py").write_text("", encoding="utf-8")
-                output = template if output_kind == "template" else root
+                root.mkdir(parents=True)
+                sentinel = self._make_sources(root)
+                output = (root / "skills") if output_kind == "source" else root
 
                 caught = None
-                with mock.patch.object(build_adapter, "_ADAPTERS_ROOT", root / "adapters"), \
-                    mock.patch.object(build_adapter, "_SOURCE_PACKAGE", package):
+                with contextlib.ExitStack() as stack:
+                    for patch in self._patched_sources(root):
+                        stack.enter_context(patch)
                     try:
                         build_adapter._build_bundle("codex", output, force=True)
                     except Exception as error:  # behavior under test
@@ -113,26 +142,24 @@ class BuildAdapterTests(unittest.TestCase):
                 self.assertTrue(sentinel.is_file())
                 self.assertEqual(sentinel.read_text(encoding="utf-8"), "source")
 
-    def test_build_rejects_output_nested_inside_adapter_template(self):
-        """Catches recursive self-copy when output is below the selected template."""
+    def test_build_rejects_output_nested_inside_a_source_tree(self):
+        """Catches recursive self-copy when output is below a single source."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            template = root / "adapters" / "codex"
-            package = root / "core" / "agent_checkpoint"
-            template.mkdir(parents=True)
-            package.mkdir(parents=True)
-            (template / "skill.md").write_text("source", encoding="utf-8")
-            (package / "__init__.py").write_text("", encoding="utf-8")
-            output = template / "generated"
+            self._make_sources(root)
+            output = root / "skills" / "generated"
 
             caught = None
-            with mock.patch.object(build_adapter, "_ADAPTERS_ROOT", root / "adapters"), \
-                mock.patch.object(build_adapter, "_SOURCE_PACKAGE", package), \
-                mock.patch.object(
-                    build_adapter.shutil,
-                    "copytree",
-                    side_effect=AssertionError("copy must not start"),
-                ):
+            with contextlib.ExitStack() as stack:
+                for patch in self._patched_sources(root):
+                    stack.enter_context(patch)
+                stack.enter_context(
+                    mock.patch.object(
+                        build_adapter.shutil,
+                        "copytree",
+                        side_effect=AssertionError("copy must not start"),
+                    )
+                )
                 try:
                     build_adapter._build_bundle("codex", output, force=False)
                 except Exception as error:  # behavior under test
@@ -142,27 +169,25 @@ class BuildAdapterTests(unittest.TestCase):
             self.assertIn("overlap", str(caught))
             self.assertFalse(output.exists())
 
-    def test_build_rejects_output_overlapping_a_different_adapter_template(self):
-        """Catches one adapter build replacing a sibling adapter's source tree."""
+    def test_build_rejects_output_overlapping_a_sibling_source_tree(self):
+        """Catches a build replacing a source tree it does not read from.
+
+        codex ships no commands, so commands/ is untouched by its projection —
+        it must still be protected from being used as the output directory.
+        """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            template = root / "adapters" / "codex"
-            sibling_template = root / "adapters" / "opencode"
-            package = root / "core" / "agent_checkpoint"
-            template.mkdir(parents=True)
-            sibling_template.mkdir(parents=True)
-            package.mkdir(parents=True)
-            sentinel = sibling_template / "keep.md"
+            self._make_sources(root)
+            sibling = root / "commands"
+            sentinel = sibling / "keep.md"
             sentinel.write_text("source", encoding="utf-8")
-            (package / "__init__.py").write_text("", encoding="utf-8")
 
             caught = None
-            with mock.patch.object(build_adapter, "_ADAPTERS_ROOT", root / "adapters"), \
-                mock.patch.object(build_adapter, "_SOURCE_PACKAGE", package):
+            with contextlib.ExitStack() as stack:
+                for patch in self._patched_sources(root):
+                    stack.enter_context(patch)
                 try:
-                    build_adapter._build_bundle(
-                        "codex", sibling_template, force=True
-                    )
+                    build_adapter._build_bundle("codex", sibling, force=True)
                 except Exception as error:  # behavior under test
                     caught = error
 
@@ -252,13 +277,14 @@ class BuildAdapterTests(unittest.TestCase):
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
 
     def test_capability_metadata_lists_declared_adapter_levels(self):
-        """Catches adapter capability labels drifting from the public contract."""
-        capabilities = json.loads(
-            (PROJECT_ROOT / "adapters" / "capabilities.json").read_text(encoding="utf-8")
-        )
+        """Catches adapter capability labels drifting from the public contract.
 
+        Since R6 the capability map is declared in hosts.toml rather than a
+        hand-maintained adapters/capabilities.json, so this reads the builder's
+        own accessor — the same path a bundle build takes.
+        """
         self.assertEqual(
-            capabilities,
+            build_adapter.capabilities(),
             {
                 "claude-code": "automatic",
                 "gemini-cli": "advisory",
@@ -338,3 +364,82 @@ class TwelveSkillBuildTests(unittest.TestCase):
                     (output / "skills" / name / "SKILL.md").is_file(),
                     f"missing skill: {name}",
                 )
+
+
+class ProjectionBaselineTests(unittest.TestCase):
+    """Catches projected output drifting from the frozen R1 adapter baseline.
+
+    R1 snapshotted the hand-maintained ``adapters/`` tree before any structural
+    change; R5 verified that projection reproduces it byte-for-byte apart from
+    two deliberate version-unification differences. ``adapters/`` itself is gone
+    since R6, so this fixture is the only remaining record of the published
+    output, and this test is what makes that R5 comparison durable.
+
+    The fixture is frozen. A failure here means the generator changed what it
+    emits — fix the generator, or make it a plan revision. Do not regenerate the
+    fixture to match new output; that would defeat the check entirely.
+    """
+
+    _BASELINE = PROJECT_ROOT / "tests" / "fixtures" / "adapter-baseline"
+
+    # Version is unified from package.json, so these two manifests legitimately
+    # differ from the baseline. Every other projected file must match exactly.
+    _PERMITTED_VERSION_DRIFT = {
+        "codex/.codex-plugin/plugin.json",
+        "gemini-cli/gemini-extension.json",
+    }
+
+    @staticmethod
+    def _relative_files(root: Path) -> set[str]:
+        return {
+            str(path.relative_to(root))
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
+    def test_projection_matches_frozen_baseline(self):
+        """Catches any generated file drifting from the published R1 output."""
+        version = json.loads(
+            (PROJECT_ROOT / "package.json").read_text(encoding="utf-8")
+        )["version"]
+
+        with tempfile.TemporaryDirectory() as directory:
+            for host in ("claude-code", "codex", "gemini-cli", "opencode"):
+                expected_root = self._BASELINE / host
+                output = Path(directory) / host
+                result = run_tool(
+                    "tools/build_adapter.py", host, "--output", str(output)
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+                # lib/ and bin/ are bundle runtime, never part of the baseline.
+                generated = {
+                    name
+                    for name in self._relative_files(output)
+                    if not name.startswith(("lib/", "bin/"))
+                }
+
+                # Absence is contractual: codex ships no commands or hooks,
+                # opencode no manifest, gemini-cli no skills. A missing file
+                # must fail here rather than pass as an empty comparison.
+                self.assertEqual(
+                    generated,
+                    self._relative_files(expected_root),
+                    f"{host}: projected file set differs from the baseline",
+                )
+
+                for name in sorted(generated):
+                    expected = (expected_root / name).read_text(encoding="utf-8")
+                    actual = (output / name).read_text(encoding="utf-8")
+                    if f"{host}/{name}" in self._PERMITTED_VERSION_DRIFT:
+                        self.assertEqual(
+                            actual,
+                            expected.replace('"version": "0.1.0"', f'"version": "{version}"'),
+                            f"{host}/{name} differs from the baseline beyond its version",
+                        )
+                    else:
+                        self.assertEqual(
+                            actual,
+                            expected,
+                            f"{host}/{name} drifted from the frozen baseline",
+                        )

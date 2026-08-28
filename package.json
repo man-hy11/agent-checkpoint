@@ -12,10 +12,10 @@
   "files": [
     "bin/agent-checkpoint.cjs",
     "bin/postinstall-skill-install.cjs",
-    "core/bin/agent-checkpoint",
-    "core/agent_checkpoint/*.py",
-    "core/agent_checkpoint/assets",
-    "core/skills",
+    "bin/agent-checkpoint",
+    "agent_checkpoint/*.py",
+    "agent_checkpoint/assets",
+    "skills",
     "README.md"
   ],
   "engines": {
