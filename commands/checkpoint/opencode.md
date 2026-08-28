@@ -39,11 +39,11 @@ agent-checkpoint write --entry -
 Add each concrete test/build result with a repeated `--verification TEXT`
 option.
 
-Use `--root PATH` when needed. If `agent-checkpoint` is unavailable, reinstall
-the CLI and retry:
+Use `--root PATH` when needed. If `agent-checkpoint` is unavailable, put its
+launcher on `PATH` and retry:
 
 ```bash
-npm install -g agent-checkpoint
+ln -s /absolute/path/to/agent-checkpoint/bin/agent-checkpoint /usr/local/bin/agent-checkpoint
 ```
 
 If the CLI is present but the checkpoint operation fails, diagnose it with:

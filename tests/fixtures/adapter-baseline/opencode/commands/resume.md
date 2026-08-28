@@ -9,11 +9,11 @@ agent-checkpoint resume
 ```
 
 Use `--root PATH` or `--max-chars NUMBER` when needed. Follow the rendered
-`Language:` instruction. If `agent-checkpoint` is unavailable, reinstall the
-CLI and retry:
+`Language:` instruction. If `agent-checkpoint` is unavailable, put its
+launcher on `PATH` and retry:
 
 ```bash
-npm install -g agent-checkpoint
+ln -s /absolute/path/to/agent-checkpoint/bin/agent-checkpoint /usr/local/bin/agent-checkpoint
 ```
 
 For an installed CLI that reports an error, run:
