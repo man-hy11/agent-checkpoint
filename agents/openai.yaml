@@ -3,7 +3,7 @@
 # Descriptions come verbatim from frontmatter description: fields.
 functions:
 - name: checkpoint
-  description: "Routes to the correct phase skill by running work status — determines which of the twelve checkpoint skills acts next and dispatches accordingly."
+  description: "Routes to the correct phase skill by running work status — determines which of the thirteen checkpoint skills acts next and dispatches accordingly."
 - name: checkpoint_brainstorm
   description: "Use when a work package exists but brief_confirmed is false — gathers the goal, scope, success criteria, constraints, and affected area before any planning step."
 - name: checkpoint_claim

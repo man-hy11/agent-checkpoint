@@ -1,6 +1,6 @@
 ---
 name: checkpoint
-description: "Routes to the correct phase skill by running work status \u2014 determines which of the twelve checkpoint skills acts next and dispatches accordingly."
+description: "Routes to the correct phase skill by running work status \u2014 determines which of the thirteen checkpoint skills acts next and dispatches accordingly."
 ---
 
 # Checkpoint — Router
