@@ -384,3 +384,49 @@ class OldProgressPointerTests(unittest.TestCase):
             pointer_target = root / ".agent-checkpoint" / "work" / result.work_id
             self.assertTrue(pointer_target.is_dir())
             self.assertIn(result.work_id, progress_path.read_text(encoding="utf-8"))
+
+
+class ToolCreatedPackageTests(unittest.TestCase):
+    """Catches migrate refusing a package the CLI itself just created.
+
+    `initialize_workflow` alone does not write PROGRESS.md — `cli.py` writes it
+    in the same `workflow` invocation. Tests that call the helper directly
+    therefore never saw the file, which is how `_find_path_conflict` came to
+    treat it as foreign content.
+    """
+
+    @staticmethod
+    def _create_via_cli(root: Path) -> None:
+        from agent_checkpoint.cli import main
+
+        exit_code = main(
+            ["workflow", "--type", "bugfix", "--id", "current", "--root", str(root)]
+        )
+        if exit_code != 0:
+            raise AssertionError(f"workflow command failed: {exit_code}")
+
+    def test_cli_created_package_is_not_a_path_conflict(self):
+        """Catches PROGRESS.md, written by the CLI, being read as a collision."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._create_via_cli(root)
+
+            [package] = discover_legacy_packages(root)
+            classification = classify(package)
+
+            self.assertTrue((package.path / "PROGRESS.md").is_file())
+            self.assertNotEqual(classification.category, PATH_CONFLICT)
+
+    def test_genuine_foreign_artifact_is_still_refused(self):
+        """Catches the conflict check being widened until it stops protecting."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._create_via_cli(root)
+
+            [package] = discover_legacy_packages(root)
+            (package.path / "BRIEF.md").write_text("pre-existing\n", encoding="utf-8")
+
+            classification = classify(package)
+
+            self.assertEqual(classification.category, PATH_CONFLICT)
+            self.assertIn("BRIEF.md", " ".join(classification.reasons))

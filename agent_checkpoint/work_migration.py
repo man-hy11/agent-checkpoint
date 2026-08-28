@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import filecmp
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import uuid
@@ -22,6 +23,7 @@ import uuid
 from . import storage
 from .storage import ValidationError
 from .work_manifest import ManifestError, load_manifest
+from .work_state import BLOCK_BEGIN, BLOCK_END, StateError, parse_state
 from .work_renderer import _build_artifact_contents, _validate_targets
 
 DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
@@ -32,6 +34,15 @@ USER_EDITED = "user_edited"
 UNKNOWN_LAYOUT = "unknown_layout"
 SYMLINK_HAZARD = "symlink_hazard"
 PATH_CONFLICT = "path_conflict"
+
+# The state block plus exactly the blank line creation pads each side with, so
+# stripping it from an untouched tracker yields the template text byte for byte.
+# The padding is matched precisely rather than greedily: swallowing every
+# adjacent newline would also join the title to the section below it.
+_BLOCK_WITH_PADDING = re.compile(
+    re.escape(BLOCK_BEGIN) + r"\n.*?\n" + re.escape(BLOCK_END) + r"\n\n",
+    re.S,
+)
 ALREADY_MIGRATED = "already_migrated"
 
 _SAFE_TO_MIGRATE = frozenset({UNTOUCHED_SCAFFOLD})
@@ -157,7 +168,7 @@ def classify(package: LegacyPackage) -> Classification:
             (f"final artifact target already occupied by unexpected content: {conflict}",),
         )
 
-    current_matches = filecmp.cmp(top_current, legacy_current, shallow=False)
+    current_matches = _current_matches_template(top_current, legacy_current)
     prompt_matches = filecmp.cmp(top_prompt, legacy_prompt, shallow=False)
     if current_matches and prompt_matches:
         return Classification(work_id, UNTOUCHED_SCAFFOLD, ())
@@ -364,17 +375,46 @@ def _find_symlink_hazard(path: Path) -> Path | None:
     return None
 
 
+def _current_matches_template(top_current: Path, legacy_current: Path) -> bool:
+    """Return whether CURRENT.md is still the untouched scaffold.
+
+    Package creation inserts a state block into the tracker, so a byte compare
+    against ``templates/CURRENT_TEMPLATE.md`` no longer holds for an untouched
+    package. Strip the block before comparing: prose identical to the template
+    means nobody has recorded work yet, which is what "untouched" is asking.
+
+    A tracker whose state block records real progress — a confirmed brief, or
+    any planned unit — is never untouched, whatever its prose looks like.
+    """
+    text = top_current.read_text(encoding="utf-8")
+    template = legacy_current.read_text(encoding="utf-8")
+    if BLOCK_BEGIN not in text:
+        return text == template
+
+    try:
+        state = parse_state(text)
+    except StateError:
+        return False
+    if state.brief_confirmed or state.units:
+        return False
+
+    stripped = _BLOCK_WITH_PADDING.sub("", text, count=1)
+    return stripped == template
+
+
 def _find_path_conflict(path: Path, work_type: str) -> str | None:
     """Return the name of a top-level entry that is neither part of the expected
     legacy scaffold nor a top-level file the legacy entrypoint materializes
     (`CURRENT.md`, `CONTINUE_PROMPT.md`), and that would collide with a final
     artifact target the migrated package is about to write, or None.
 
-    Legacy packages only ever carry `CURRENT.md` and `CONTINUE_PROMPT.md` at
-    top level (see `workflows._materialize_entrypoints`); every other final
-    artifact name (`BRIEF.md`, `PLAN.md`, `DESIGN.md`, ...) must not already
-    exist as a top-level entry in a legacy package, since migration is about
-    to write it — if one exists already, refuse rather than silently replace it.
+    Legacy packages carry `CURRENT.md` and `CONTINUE_PROMPT.md` from
+    `workflows._materialize_entrypoints`, plus `PROGRESS.md`, which `cli.py`
+    writes in the same `workflow` invocation. All three are the tool's own
+    output and are not conflicts. Every other final artifact name (`BRIEF.md`,
+    `PLAN.md`, `DESIGN.md`, ...) must not already exist as a top-level entry in
+    a legacy package, since migration is about to write it — if one exists
+    already, refuse rather than silently replace it.
     """
     try:
         manifest = load_manifest(work_type)
@@ -383,6 +423,9 @@ def _find_path_conflict(path: Path, work_type: str) -> str | None:
     expected_legacy = {
         "templates", "prompts", "shared", "README.md", "workflow.json",
         "CURRENT.md", "CONTINUE_PROMPT.md",
+        # Written by cli.py in the same `workflow` invocation that creates the
+        # package, so it is the tool's own output rather than foreign content.
+        "PROGRESS.md",
     }
     final_targets = set(manifest.artifacts) - {"CURRENT.md", "CONTINUE_PROMPT.md"}
     for entry in path.iterdir():

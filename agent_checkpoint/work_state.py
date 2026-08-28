@@ -9,6 +9,7 @@ from .storage import ValidationError
 BLOCK_BEGIN = "<!-- agent-checkpoint:state v1 -->"
 BLOCK_END = "<!-- /agent-checkpoint:state -->"
 SCHEMA_VERSION = 1
+DEFAULT_MAX_ATTEMPTS = 3
 
 UNIT_STATES = frozenset(
     {"pending", "ready", "running", "passed", "failed", "blocked", "superseded"}
@@ -171,6 +172,39 @@ def _render_tracker_prose(text: str, state: WorkState) -> str:
         rendered,
         count=1,
     )
+
+
+def initial_state(work_id: str, work_type: str) -> WorkState:
+    """Return the state a brand-new work package starts from.
+
+    No plan exists yet, so ``units`` is empty and ``current_unit`` is None —
+    chain-v1 then routes the package to checkpoint-brainstorm (Row 2, the brief
+    is unconfirmed) and on to checkpoint-plan (Row 3, no units).
+    """
+    return WorkState(
+        schema_version=SCHEMA_VERSION,
+        work_id=work_id,
+        work_type=work_type,
+        plan_revision=1,
+        brief_confirmed=False,
+        current_unit=None,
+        max_attempts=DEFAULT_MAX_ATTEMPTS,
+        attempt_override=None,
+        units=(),
+        attempts=(),
+    )
+
+
+def render_initial_block(work_id: str, work_type: str) -> str:
+    """Serialize a new package's state block, delimiters included.
+
+    Package creation writes this rather than carrying a block in each of the ten
+    bundled CURRENT_TEMPLATE.md files: one generator cannot drift from the
+    parser, ten hand-maintained copies can, and the templates' prose belongs to
+    the work type rather than to the schema.
+    """
+    body = json.dumps(_to_payload(initial_state(work_id, work_type)), indent=2, sort_keys=True)
+    return f"{BLOCK_BEGIN}\n{body}\n{BLOCK_END}"
 
 
 def apply_event(

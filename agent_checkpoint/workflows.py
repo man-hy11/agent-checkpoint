@@ -10,6 +10,7 @@ import uuid
 
 from .config import ConfigError
 from .work_renderer import RenderedPackage, render_final_package
+from .work_state import BLOCK_BEGIN, initial_state, render_initial_block, render_state
 
 
 _ASSET_ROOT = Path(__file__).with_name("assets") / "development-templates"
@@ -89,7 +90,7 @@ def initialize_workflow(project_root: Path, work_type: str, work_id: str) -> Wor
     try:
         shutil.copytree(source, staged)
         shutil.copytree(shared, staged / "shared")
-        _materialize_entrypoints(staged)
+        _materialize_entrypoints(staged, work_id, work_type)
         os.replace(staged, destination)
     except BaseException:
         if staged.exists() and not staged.is_symlink():
@@ -248,11 +249,38 @@ def _reject_symlinked_path(root: Path, relative: Path) -> None:
             raise ConfigError("work package path parent is not a directory")
 
 
-def _materialize_entrypoints(work_package: Path) -> None:
-    """Expose the tracker and continuation prompt at stable top-level paths."""
+def _materialize_entrypoints(work_package: Path, work_id: str, work_type: str) -> None:
+    """Expose the tracker and continuation prompt at stable top-level paths.
+
+    The tracker is not a plain copy: the bundled templates carry prose only, so
+    the state block every `work` subcommand parses is inserted here. Without it
+    a freshly created package is unreadable and `work status` reports no active
+    package at all.
+    """
     current_template = work_package / "templates" / "CURRENT_TEMPLATE.md"
     continue_prompt = work_package / "prompts" / "CONTINUE_PROMPT.md"
     if not current_template.is_file() or not continue_prompt.is_file():
         raise OSError("bundled workflow is missing required entrypoint templates")
-    shutil.copy2(current_template, work_package / "CURRENT.md")
+    template_text = current_template.read_text(encoding="utf-8")
+    (work_package / "CURRENT.md").write_text(
+        _with_state_block(template_text, work_id, work_type), encoding="utf-8"
+    )
     shutil.copy2(continue_prompt, work_package / "CONTINUE_PROMPT.md")
+
+
+def _with_state_block(text: str, work_id: str, work_type: str) -> str:
+    """Return the tracker text with a new package's state block in place.
+
+    Inserted after the title so the block sits above the prose a reader scans.
+    A template that already carries a block keeps its position, so this stays
+    correct if the bundled templates ever gain one.
+    """
+    block = render_initial_block(work_id, work_type)
+    if BLOCK_BEGIN in text:
+        return render_state(text, initial_state(work_id, work_type))
+    lines = text.split("\n")
+    # Insert after the title and the blank line that follows it, keeping the
+    # rest of the template byte-identical so migration can still recognize an
+    # untouched scaffold by stripping exactly this block back out.
+    head = 2 if len(lines) > 1 and lines[0].startswith("# ") and not lines[1] else 0
+    return "\n".join(lines[:head] + [block, ""] + lines[head:])
