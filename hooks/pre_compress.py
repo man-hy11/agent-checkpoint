@@ -9,7 +9,7 @@ import sys
 
 
 _ADVISORY = (
-    "The project checkpoint is missing or stale. Invoke /checkpoint now so "
+    "The project checkpoint is missing or stale. Invoke /checkpoint-save now so "
     "current progress is available after context compression."
 )
 
